@@ -1,0 +1,40 @@
+language: python
+python:
+- '3.4'
+- '3.5'
+- '3.6'
+install:
+- pip install --upgrade pip
+- pip install -e .
+- pip install -r test_requirements.txt
+env:
+- TEST_ENV=travis
+script:
+- flake8 . && travis_wait 50 py.test
+before_install:
+- openssl aes-256-cbc -K $encrypted_99dd1c7c40fb_key -iv $encrypted_99dd1c7c40fb_iv
+  -in travis.tar.enc -out travis.tar -d
+- tar xvf travis.tar
+- mkdir -p ~/.mdf/credentials/
+- mv MDF_Connect_Client_tokens.json ~/.mdf/credentials/MDF_Connect_Client_tokens.json
+after_success:
+- coveralls
+notifications:
+  email:
+    recipients:
+    - jgaff@uchicago.edu
+    on_success: never
+    on_failure: always
+  slack:
+    on_success: always
+    on_failure: always
+    rooms:
+      secure: PeTw4hgPe/UvQXjmYD7tT+4J1tOZKOHw5sLYegSZtnekKeLpjLZib0eZrAkzE5LFbRoRgXZ9z4Yn+hN3az4Z1GodXYcRrYrvRwe75oZMgxe5TvXpmE1lqv8nCvbDo2LJbkVTdn0fKRRfEl1W62RtYcyh+QwunUudHA9U2zOZLqSt4BeYMTOK4T5XyhZ5T1DYSBO8Dj28OFuemjwGkBMgZ5Z/+GqIJ1wZw2sKHKN+vkKj8NChPEzok+GX0R1CXgqvMMHPNJUx/69hZMuqxZciQICqhAstUw//ssTI6bzGHivbhObE5nlDqmBIPDD8tEG6p/XOOFtHx2a/R6KV+5wjzIs6sLiEz2QAG/qKm20jSHi8j585RqjgpBGC1g0FQ8k75E0oF8ls5unHFnDHPRWnPI0ifZ2qgYIUWdHC6dV4QF06Z1OYRHfOiyiLvuWIlKufKRM6aC84LEXxBS7Lq4MUZ+wKjGVf5EmSeJzYC+NXnBcnkFOx3KnImNDP9JuBwsgrFYRZhpvlwKdmCn1sw+iAuhco+nTKrzq5fK4vglE4zAMr81YgnLrVY3xJrz0G4wbQYvtxcFx84GaV6UiL1hfbuu4aBw3o6kuq5gxEaYg18MvsIZyIbQOpNuqRtQsHknRJSoLPvIEv8Rq6zA2twHI1MJXunjzsc0WaCm2Npt1ZpGk=
+deploy:
+  provider: pypi
+  user: jgaff
+  on:
+    tags: true
+  distributions: sdist bdist_wheel
+  password:
+    secure: 0McTh28SgeOa0CO2Rhj4JC6VEtl49zpotlzFJq2ZMyuDchztuRQYGU8v2qlmvspBzEHs0++xYeeUgemcs/5ppp24K5KyF66dgCbqhEJ1hPM/r+xLuGb5okAAVN+w7TLl11aSHyQvwAKR7FAEKM7AdF+zkecieZZHXsuQpaV0wuSn3z5Jq2S4WTFddAUhiJdzYMjTpVWR/ccO1DzlynaOM92Ae3MHbXV4hXROxQUseUNRdE8UPS6EBEgcbELQmHAF3GrzEW6nfv9jMPbtBx2GyfsMBgtayYy0D4yL69L+1N4NjgE/sc1t6DYWNJyjQEAIgSsI+1KUh4DFnORBjouOwep2IUfgvE27h6z/VFpS9eIlVn97LyOKHDH7qSmHwvoHhYB5iulQ9KG7IzD5X92n2LT9Zgor6zrWxPSrYgPdoCGydv2wAvT3obB9jih1C5pGL0+6BqaucmSK/KyOr1wEoFRpPAcq94T2bynfdrTpkOBkaW3MfIwJYNCVYTqUvFQvDqCfT9M50XyT9p2AxSrh7EYXgXG6CRJylM2yu0zgCuISKOiERLV0gjI6KUeySZsbIgtxUDMQHJ9vaP2IaokZTZkRqSU3l9hWNpJrONBWVlTzT9uUoWQdgNEoTN4W1ZhjXUy/5Gd0m/joLCWkVCyw11xSF0fnTpOgQjKaUjh+K7Q=
