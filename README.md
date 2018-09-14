@@ -1,6 +1,26 @@
 # MDF Connect Client
 The MDF Connect Client is the Python client to easily submit datasets to MDF Connect.
 
+# Installation
+
+```
+pip install mdf_connect_client
+```
+
+### For Developers
+```
+git clone https://github.com/materials-data-facility/connect_client.git
+cd connect_client
+pip install -e .
+```
+
+# Documentation and examples
+Tutorials and examples can be found in the `docs` directory. The Jupyter notebooks can be viewed on GitHub or run interactively with ![Jupyter](http://jupyter.org/install).
+
+# Requirements
+* The Connect Client requires Python 3.4 or greater.
+* To submit data to MDF Connect, you must have an account recognized by Globus Auth (including Google, ORCiD, many academic institutions, or a [free Globus ID](https://www.globusid.org/create)), and be a member of the [MDF Connect Convert Globus Group](https://app.globus.org/groups/cc192dca-3751-11e8-90c1-0a7c735d220a)
+
 
 # Support
 This work was performed under financial assistance award 70NANB14H012 from U.S. Department of Commerce, National Institute of Standards and Technology as part of the [Center for Hierarchical Material Design (CHiMaD)](http://chimad.northwestern.edu). This work was also supported by the National Science Foundation as part of the [Midwest Big Data Hub](http://midwestbigdatahub.org) under NSF Award Number: 1636950 "BD Spokes: SPOKE: MIDWEST: Collaborative: Integrative Materials Design (IMaD): Leverage, Innovate, and Disseminate".
