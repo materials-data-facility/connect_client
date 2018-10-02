@@ -27,5 +27,5 @@ setup(
         "Connect Client"
     ],
     license="Apache License, Version 2.0",
-    url="https://github.com/materials-data-facility/toolbox"
+    url="https://github.com/materials-data-facility/connect_client"
 )

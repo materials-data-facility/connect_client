@@ -533,5 +533,6 @@ class MDFConnectClient:
             elif raw:
                 return json_res
             else:
-                print("\n", json_res["status_message"], "\nThis submission is ",
-                      ("active." if json_res["active"] else "inactive."), sep="")
+                print("Successful.")
+                # print("\n", json_res["status_message"], "\nThis submission is ",
+                #      ("active." if json_res["active"] else "inactive."), sep="")
