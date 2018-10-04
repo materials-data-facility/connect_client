@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='mdf_connect_client',
-    version='0.0.2',
+    version='0.0.3',
     packages=['mdf_connect_client'],
     description='Materials Data Facility Connect Client',
     long_description=("The MDF Connect Client is the Python client to easily submit"
@@ -27,5 +27,5 @@ setup(
         "Connect Client"
     ],
     license="Apache License, Version 2.0",
-    url="https://github.com/materials-data-facility/toolbox"
+    url="https://github.com/materials-data-facility/connect_client"
 )
