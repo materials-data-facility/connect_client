@@ -57,9 +57,12 @@ class MDFConnectClient:
     def create_dc_block(self, title, authors,
                         affiliations=None, publisher=None, publication_year=None,
                         resource_type=None,
-                        description=None, dataset_doi=None, related_dois=None,
+                        description=None, dataset_doi=None, related_dois=None, subjects=None,
                         **kwargs):
         """Create your submission's dc block.
+        This block is the DataCite block. Additional information on DataCite fields
+        is available from the official DataCite website:
+        https://schema.datacite.org/meta/kernel-4.1/
 
         Arguments:
 
@@ -103,6 +106,8 @@ class MDFConnectClient:
                                            not including the dataset's own DOI
                                            (for example, an associated paper's DOI).
                                            Default None.
+        subjects (str or list of str): Subjects (in Datacite terminology) or tags related
+                                       to the dataset.
 
         Additional keyword arguments:
             Any further keyword arguments will be added to the DataCite metadata (the dc block).
@@ -196,6 +201,14 @@ class MDFConnectClient:
                 "relatedIdentifierType": "DOI",
                 "relationType": "IsPartOf"
             } for doi in related_dois]
+
+        # subjects
+        if subjects:
+            if not isinstance(subjects, list):
+                subjects = [subjects]
+            dc["subjects"] = [{
+                "subject": sub
+            } for sub in subjects]
 
         # misc
         if kwargs:
