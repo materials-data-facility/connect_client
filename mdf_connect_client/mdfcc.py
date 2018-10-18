@@ -520,7 +520,11 @@ class MDFConnectClient:
         try:
             json_res = res.json()
         except json.JSONDecodeError:
-            error = "Error decoding {} response: {}".format(res.status_code, res.content)
+            if res.status_code < 300:
+                error = "Error decoding {} response: {}".format(res.status_code, res.content)
+            else:
+                error = ("Error {}. MDF Connect may be experiencing technical"
+                         " difficulties.").format(res.status_code)
         else:
             if res.status_code < 300:
                 self.source_id = json_res["source_id"]
@@ -563,7 +567,11 @@ class MDFConnectClient:
         try:
             json_res = res.json()
         except json.JSONDecodeError:
-            print("Error decoding {} response: {}".format(res.status_code, res.content))
+            if res.status_code < 300:
+                print("Error decoding {} response: {}".format(res.status_code, res.content))
+            else:
+                print("Error {}. MDF Connect may be experiencing technical"
+                      " difficulties.".format(res.status_code))
         else:
             if res.status_code >= 300:
                 print("Error {} fetching status: {}".format(res.status_code, json_res))
