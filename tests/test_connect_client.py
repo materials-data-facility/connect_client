@@ -24,6 +24,7 @@ def test_create_dc_block():
         description="This is a test",
         dataset_doi="10.555",
         related_dois="10.5555",
+        subjects="Science",
         other=5
     )
     assert mdf.dc == {
@@ -55,6 +56,9 @@ def test_create_dc_block():
         },
         'titles': [{
             'title': 'Connect Title'
+        }],
+        'subjects': [{
+            'subject': 'Science'
         }]
     }
     # Full test, all lists
@@ -68,6 +72,7 @@ def test_create_dc_block():
         description="This is a test",
         dataset_doi="10.555",
         related_dois=["10.5555", "10.555-5555"],
+        subjects=["Science", "Math"],
         other=5,
         list_other=["a", "b"]
     )
@@ -122,6 +127,11 @@ def test_create_dc_block():
             'title': 'Connect Title'
         }, {
             'title': 'Other Title'
+        }],
+        'subjects': [{
+            'subject': 'Science'
+        }, {
+            'subject': 'Math'
         }]
     }
     # Minimum test

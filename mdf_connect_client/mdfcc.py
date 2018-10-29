@@ -57,9 +57,12 @@ class MDFConnectClient:
     def create_dc_block(self, title, authors,
                         affiliations=None, publisher=None, publication_year=None,
                         resource_type=None,
-                        description=None, dataset_doi=None, related_dois=None,
+                        description=None, dataset_doi=None, related_dois=None, subjects=None,
                         **kwargs):
         """Create your submission's dc block.
+        This block is the DataCite block. Additional information on DataCite fields
+        is available from the official DataCite website:
+        https://schema.datacite.org/meta/kernel-4.1/
 
         Arguments:
 
@@ -73,6 +76,12 @@ class MDFConnectClient:
                                       No additional commas or semicolons are permitted.
 
         Arguments with usable defaults:
+        publisher (str): The publisher of the dataset (not an associated paper). Default MDF.
+        publication_year (int or str): The year of dataset publication. Default current year.
+        resource_type (str): The type of resource. Except in unusual cases, this should be
+                             "Dataset". Default "Dataset".
+
+        Optional arguments:
         affiliations (str or list of str or list of list of str):
                       The affiliations of the authors, in the same order.
                       If a different number of affiliations are given,
@@ -91,18 +100,14 @@ class MDFConnectClient:
                         # This is incorrect! If applying affiliations to all authors,
                         #   lists must not be nested.
                         affiliations = ["NIST", ["NIST", "UChicago"], "Argonne", "Oak Ridge"]
-        publisher (str): The publisher of the dataset (not an associated paper). Default MDF.
-        publication_year (int or str): The year of dataset publication. Default current year.
-        resource_type (str): The type of resource. Except in unusual cases, this should be
-                             "Dataset". Default "Dataset".
-
-        Optional arguments:
         description (str): A description of the dataset. Default None for no description.
         dataset_doi (str): The DOI for this dataset (not an associated paper). Default None.
         related_dois (str or list of str): DOIs related to this dataset,
                                            not including the dataset's own DOI
                                            (for example, an associated paper's DOI).
                                            Default None.
+        subjects (str or list of str): Subjects (in Datacite terminology) or tags related
+                                       to the dataset.
 
         Additional keyword arguments:
             Any further keyword arguments will be added to the DataCite metadata (the dc block).
@@ -196,6 +201,14 @@ class MDFConnectClient:
                 "relatedIdentifierType": "DOI",
                 "relationType": "IsPartOf"
             } for doi in related_dois]
+
+        # subjects
+        if subjects:
+            if not isinstance(subjects, list):
+                subjects = [subjects]
+            dc["subjects"] = [{
+                "subject": sub
+            } for sub in subjects]
 
         # misc
         if kwargs:
@@ -321,6 +334,7 @@ class MDFConnectClient:
                          yaml
                          xml
                          excel
+                         filename
         mapping (dict): The mapping of MDF fields to your data type's fields.
                         It is strongly recommended that you use "dot notation",
                         where nested JSON objects are represented with a period.
@@ -365,12 +379,13 @@ class MDFConnectClient:
                        Connected services include:
                         globus_publish (publication with DOI minting)
                         citrine (industry-partnered machine-learning specialists)
+                        mrr (NIST Materials Resource Registry)
         parameters (dict): Optional, service-specific parameters.
             For globus_publish:
                 collection_id (int): The collection for submission. Overwrites collection_name.
                 collection_name (str): The collection for submission.
             For citrine:
-                public (bool): When true, will make data public. Otherwise, it is inaccessible.
+                public (bool): When True, will make data public. Otherwise, it is inaccessible.
         """
         if parameters is None:
             parameters = True
@@ -439,13 +454,10 @@ class MDFConnectClient:
             "service_location": self.service_loc
         }
 
-    def submit_dataset(self, test=False, resubmit=False, submission=None, reset=False):
+    def submit_dataset(self, resubmit=False, submission=None, reset=False):
         """Submit your dataset to MDF Connect for processing.
 
         Arguments:
-        test (bool): Submit as a test dataset (a dry-run, see set_test()).
-                     If you have called set_test() or otherwise specified test=True,
-                     you do not need to use this argument.
         resubmit (bool): If you wish to submit this dataset again, set this to True.
                          If this is the first submission, leave this False.
         submission (dict): If you have assembled the Connect metadata yourself,
@@ -508,7 +520,11 @@ class MDFConnectClient:
         try:
             json_res = res.json()
         except json.JSONDecodeError:
-            error = "Error decoding {} response: {}".format(res.status_code, res.content)
+            if res.status_code < 300:
+                error = "Error decoding {} response: {}".format(res.status_code, res.content)
+            else:
+                error = ("Error {}. MDF Connect may be experiencing technical"
+                         " difficulties.").format(res.status_code)
         else:
             if res.status_code < 300:
                 self.source_id = json_res["source_id"]
@@ -551,13 +567,17 @@ class MDFConnectClient:
         try:
             json_res = res.json()
         except json.JSONDecodeError:
-            print("Error decoding {} response: {}".format(res.status_code, res.content))
+            if res.status_code < 300:
+                print("Error decoding {} response: {}".format(res.status_code, res.content))
+            else:
+                print("Error {}. MDF Connect may be experiencing technical"
+                      " difficulties.".format(res.status_code))
         else:
             if res.status_code >= 300:
                 print("Error {} fetching status: {}".format(res.status_code, json_res))
             elif raw:
                 return json_res
             else:
-                print("Successful.")
+                print("\n", json_res["status_message"], sep="")
                 # print("\n", json_res["status_message"], "\nThis submission is ",
                 #      ("active." if json_res["active"] else "inactive."), sep="")
