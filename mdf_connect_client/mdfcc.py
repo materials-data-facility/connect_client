@@ -514,6 +514,12 @@ class MDFConnectClient:
         self.__authorizer.set_authorization_header(headers)
         res = requests.post(self.service_loc+self.convert_route,
                             json=submission, headers=headers)
+        # Handle first 401/403 by regenerating auth headers
+        if res.status_code == 401 or res.status_code == 403:
+            self.__authorizer.handle_missing_authorization()
+            self.__authorizer.set_authorization_header(headers)
+            res = requests.post(self.service_loc+self.convert_route,
+                                json=submission, headers=headers)
 
         # Check for success
         error = None
@@ -564,6 +570,13 @@ class MDFConnectClient:
         self.__authorizer.set_authorization_header(headers)
         res = requests.get(self.service_loc+self.status_route+(source_id or self.source_id),
                            headers=headers)
+        # Handle first 401/403 by regenerating auth headers
+        if res.status_code == 401 or res.status_code == 403:
+            self.__authorizer.handle_missing_authorization()
+            self.__authorizer.set_authorization_header(headers)
+            res = requests.get(self.service_loc+self.status_route+(source_id or self.source_id),
+                               headers=headers)
+
         try:
             json_res = res.json()
         except json.JSONDecodeError:
