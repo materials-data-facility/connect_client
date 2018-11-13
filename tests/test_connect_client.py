@@ -214,12 +214,23 @@ def test_set_custom_block():
     mdf = MDFConnectClient()
     mdf.set_custom_block({"foo": "bar"})
     assert mdf.custom == {"foo": "bar"}
+    # OOR floats not allowed
+    res = mdf.set_custom_block({"foo": float("nan")})
+    assert "Out of range float values are not JSON compliant" in res
+    assert mdf.custom == {"foo": "bar"}
 
 
 def test_set_custom_descriptions():
     mdf = MDFConnectClient()
     mdf.set_custom_block({"foo": "bar"})
     mdf.set_custom_descriptions({"foo": "This is a foo"})
+    assert mdf.custom == {
+        "foo": "bar",
+        "foo_desc": "This is a foo"
+    }
+    # OOR floats not allowed
+    res = mdf.set_custom_descriptions({"foo": float("nan")})
+    assert "Out of range float values are not JSON compliant" in res
     assert mdf.custom == {
         "foo": "bar",
         "foo_desc": "This is a foo"
@@ -263,6 +274,17 @@ def test_index():
     }
     # Overwrite
     mdf.add_index("csv", mapping={"crystal_structure.space_group_number": "csv_header_2"})
+    assert mdf.index == {
+        "json": {
+            "mapping": {"materials.composition": "my_json.data.stuff.comp"}
+        },
+        "csv": {
+            "mapping": {"crystal_structure.space_group_number": "csv_header_2"}
+        }
+    }
+    # Bad input
+    res = mdf.add_index("json", mapping={"crystal_structure.space_group_number": float("nan")})
+    assert "Out of range float values are not JSON compliant" in res
     assert mdf.index == {
         "json": {
             "mapping": {"materials.composition": "my_json.data.stuff.comp"}

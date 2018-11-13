@@ -289,6 +289,10 @@ class MDFConnectClient:
                               called [field]_desc with the string description inside, or by
                               calling set_custom_descriptions().
         """
+        try:
+            json.dumps(custom_fields, allow_nan=False)
+        except (ValueError, json.JSONDecodeError) as e:
+            return "Error: Your custom block is invalid: {}".format(repr(e))
         self.custom = custom_fields
 
     def set_custom_descriptions(self, custom_descriptions):
@@ -299,6 +303,10 @@ class MDFConnectClient:
                                     Field names in this argument must match field
                                     names added by calling set_custom_block().
         """
+        try:
+            json.dumps(custom_descriptions, allow_nan=False)
+        except (ValueError, json.JSONDecodeError) as e:
+            return "Error: Your custom descriptions are invalid: {}".format(repr(e))
         for field, desc in custom_descriptions.items():
             self.custom[field+"_desc"] = desc
 
@@ -354,7 +362,11 @@ class MDFConnectClient:
                                         Only applicable to tabular data.
                                         Default blank and space.
         """
-        # TODO: Validation
+        # TODO: Additional validation
+        try:
+            json.dumps(mapping, allow_nan=False)
+        except (ValueError, json.JSONDecodeError) as e:
+            return "Error: Your mapping is invalid: {}".format(repr(e))
         index = {
             "mapping": mapping
         }
@@ -507,6 +519,15 @@ class MDFConnectClient:
                 'source_id': None,
                 'success': False,
                 'error': "You must populate the dc and data blocks before submission."
+            }
+        # Validate JSON
+        try:
+            json.dumps(submission, allow_nan=False)
+        except (ValueError, json.JSONDecodeError) as e:
+            return {
+                'source_id': None,
+                'success': False,
+                'error': "The submission JSON is invalid: {}".format(repr(e))
             }
 
         # Make the request
