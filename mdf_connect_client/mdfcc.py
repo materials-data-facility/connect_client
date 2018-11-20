@@ -291,7 +291,7 @@ class MDFConnectClient:
         """
         try:
             json.dumps(custom_fields, allow_nan=False)
-        except (ValueError, json.JSONDecodeError) as e:
+        except Exception as e:
             return "Error: Your custom block is invalid: {}".format(repr(e))
         self.custom = custom_fields
 
@@ -305,7 +305,7 @@ class MDFConnectClient:
         """
         try:
             json.dumps(custom_descriptions, allow_nan=False)
-        except (ValueError, json.JSONDecodeError) as e:
+        except Exception as e:
             return "Error: Your custom descriptions are invalid: {}".format(repr(e))
         for field, desc in custom_descriptions.items():
             self.custom[field+"_desc"] = desc
@@ -365,7 +365,7 @@ class MDFConnectClient:
         # TODO: Additional validation
         try:
             json.dumps(mapping, allow_nan=False)
-        except (ValueError, json.JSONDecodeError) as e:
+        except Exception as e:
             return "Error: Your mapping is invalid: {}".format(repr(e))
         index = {
             "mapping": mapping
@@ -523,7 +523,7 @@ class MDFConnectClient:
         # Validate JSON
         try:
             json.dumps(submission, allow_nan=False)
-        except (ValueError, json.JSONDecodeError) as e:
+        except Exception as e:
             return {
                 'source_id': None,
                 'success': False,
@@ -546,7 +546,7 @@ class MDFConnectClient:
         error = None
         try:
             json_res = res.json()
-        except json.JSONDecodeError:
+        except Exception:
             if res.status_code < 300:
                 error = "Error decoding {} response: {}".format(res.status_code, res.content)
             else:
@@ -600,7 +600,7 @@ class MDFConnectClient:
 
         try:
             json_res = res.json()
-        except json.JSONDecodeError:
+        except Exception:
             if res.status_code < 300:
                 print("Error decoding {} response: {}".format(res.status_code, res.content))
             else:
@@ -612,6 +612,5 @@ class MDFConnectClient:
             elif raw:
                 return json_res
             else:
-                print("\n", json_res["status_message"], sep="")
-                # print("\n", json_res["status_message"], "\nThis submission is ",
-                #      ("active." if json_res["active"] else "inactive."), sep="")
+                print("\n", json_res["status_message"], "\nThis submission is ",
+                      ("active." if json_res["active"] else "inactive."), sep="")
