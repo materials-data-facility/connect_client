@@ -359,8 +359,9 @@ class MDFConnectClient:
                          Only applicable to tabular data.
                          Default comma.
         na_values (str or list of str): Values to treat as N/A (not applicable/available).
-                                        Only applicable to tabular data.
-                                        Default blank and space.
+                                        Applies to all values.
+                                        For tabular data, default blank and space.
+                                        For other data, default None.
         """
         # TODO: Additional validation
         try:
