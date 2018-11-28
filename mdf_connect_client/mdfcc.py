@@ -289,6 +289,10 @@ class MDFConnectClient:
                               called [field]_desc with the string description inside, or by
                               calling set_custom_descriptions().
         """
+        try:
+            json.dumps(custom_fields, allow_nan=False)
+        except Exception as e:
+            return "Error: Your custom block is invalid: {}".format(repr(e))
         self.custom = custom_fields
 
     def set_custom_descriptions(self, custom_descriptions):
@@ -299,6 +303,10 @@ class MDFConnectClient:
                                     Field names in this argument must match field
                                     names added by calling set_custom_block().
         """
+        try:
+            json.dumps(custom_descriptions, allow_nan=False)
+        except Exception as e:
+            return "Error: Your custom descriptions are invalid: {}".format(repr(e))
         for field, desc in custom_descriptions.items():
             self.custom[field+"_desc"] = desc
 
@@ -351,10 +359,15 @@ class MDFConnectClient:
                          Only applicable to tabular data.
                          Default comma.
         na_values (str or list of str): Values to treat as N/A (not applicable/available).
-                                        Only applicable to tabular data.
-                                        Default blank and space.
+                                        Applies to all values.
+                                        For tabular data, default blank and space.
+                                        For other data, default None.
         """
-        # TODO: Validation
+        # TODO: Additional validation
+        try:
+            json.dumps(mapping, allow_nan=False)
+        except Exception as e:
+            return "Error: Your mapping is invalid: {}".format(repr(e))
         index = {
             "mapping": mapping
         }
@@ -508,18 +521,33 @@ class MDFConnectClient:
                 'success': False,
                 'error': "You must populate the dc and data blocks before submission."
             }
+        # Validate JSON
+        try:
+            json.dumps(submission, allow_nan=False)
+        except Exception as e:
+            return {
+                'source_id': None,
+                'success': False,
+                'error': "The submission JSON is invalid: {}".format(repr(e))
+            }
 
         # Make the request
         headers = {}
         self.__authorizer.set_authorization_header(headers)
         res = requests.post(self.service_loc+self.convert_route,
                             json=submission, headers=headers)
+        # Handle first 401/403 by regenerating auth headers
+        if res.status_code == 401 or res.status_code == 403:
+            self.__authorizer.handle_missing_authorization()
+            self.__authorizer.set_authorization_header(headers)
+            res = requests.post(self.service_loc+self.convert_route,
+                                json=submission, headers=headers)
 
         # Check for success
         error = None
         try:
             json_res = res.json()
-        except json.JSONDecodeError:
+        except Exception:
             if res.status_code < 300:
                 error = "Error decoding {} response: {}".format(res.status_code, res.content)
             else:
@@ -564,9 +592,16 @@ class MDFConnectClient:
         self.__authorizer.set_authorization_header(headers)
         res = requests.get(self.service_loc+self.status_route+(source_id or self.source_id),
                            headers=headers)
+        # Handle first 401/403 by regenerating auth headers
+        if res.status_code == 401 or res.status_code == 403:
+            self.__authorizer.handle_missing_authorization()
+            self.__authorizer.set_authorization_header(headers)
+            res = requests.get(self.service_loc+self.status_route+(source_id or self.source_id),
+                               headers=headers)
+
         try:
             json_res = res.json()
-        except json.JSONDecodeError:
+        except Exception:
             if res.status_code < 300:
                 print("Error decoding {} response: {}".format(res.status_code, res.content))
             else:
@@ -578,6 +613,5 @@ class MDFConnectClient:
             elif raw:
                 return json_res
             else:
-                print("\n", json_res["status_message"], sep="")
-                # print("\n", json_res["status_message"], "\nThis submission is ",
-                #      ("active." if json_res["active"] else "inactive."), sep="")
+                print("\n", json_res["status_message"], "\nThis submission is ",
+                      ("active." if json_res["active"] else "inactive."), sep="")
