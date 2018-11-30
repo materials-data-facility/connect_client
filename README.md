@@ -15,7 +15,7 @@ pip install -e .
 ```
 
 # Documentation and examples
-Tutorials and examples can be found in the `docs` directory. The Jupyter notebooks can be viewed on GitHub or run interactively with ![Jupyter](http://jupyter.org/install).
+Tutorials and examples can be found in the `docs` directory. The Jupyter notebooks can be viewed on GitHub or run interactively with [Jupyter](http://jupyter.org/install).
 
 # Requirements
 * The Connect Client requires Python 3.4 or greater.
