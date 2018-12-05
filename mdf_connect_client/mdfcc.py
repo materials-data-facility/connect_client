@@ -10,6 +10,7 @@ CONNECT_SERVICE_LOC = "https://api.materialsdatafacility.org"
 CONNECT_DEV_LOC = "https://dev-api.materialsdatafacility.org"
 CONNECT_CONVERT_ROUTE = "/convert"
 CONNECT_STATUS_ROUTE = "/status/"
+CONNECT_ALL_STATUS_ROUTE = "/submissions/"
 
 
 class MDFConnectClient:
@@ -42,6 +43,7 @@ class MDFConnectClient:
             self.service_loc = service_instance
         self.convert_route = CONNECT_CONVERT_ROUTE
         self.status_route = CONNECT_STATUS_ROUTE
+        self.all_status_route = CONNECT_ALL_STATUS_ROUTE
 
         self.source_id = None
 
@@ -611,7 +613,86 @@ class MDFConnectClient:
             if res.status_code >= 300:
                 print("Error {} fetching status: {}".format(res.status_code, json_res))
             elif raw:
-                return json_res
+                return json_res["status"]
             else:
-                print("\n", json_res["status_message"], "\nThis submission is ",
-                      ("active." if json_res["active"] else "inactive."), sep="")
+                print("\n", json_res["status"]["status_message"], "\nThis submission is ",
+                      ("active." if json_res["status"]["active"] else "inactive."), sep="")
+
+    def check_all_submissions(self, verbose=False, active=False, raw=False,
+                              _admin_code=None):
+        """Check the status of all of your submissions.
+
+        Arguments:
+        verbose (bool): When False, will print a basic summary of your submissions.
+                        When True, will print the full status summary of each submission,
+                            as if you called check_status().
+                        Has no effect if raw is True.
+                        Default False.
+        active (bool): When False, will print the status for all of your submissions.
+                       When True, will only print active submissions.
+                       Default False
+        raw (bool): When False, will print your submissions' summaries.
+                    When True, will return the full status results.
+                    For direct human consumption, False is recommended. Default False.
+        _admin_code (str): For MDF Connect administrators only, a special function code.
+                           Valid codes:
+                                all: All submission statuses
+                                active: All active submission statuses
+                           Only MDF Connect administrators are allowed to submit this argument.
+                           Default None, the only valid value for non-admins.
+
+        Returns:
+        if raw is True, list of dict: The full statuses.
+        """
+        headers = {}
+        self.__authorizer.set_authorization_header(headers)
+        res = requests.get("{}{}{}".format(self.service_loc, self.all_status_route,
+                                           (_admin_code or "")), headers=headers)
+        # Handle first 401/403 by regenerating auth headers
+        if res.status_code == 401 or res.status_code == 403:
+            self.__authorizer.handle_missing_authorization()
+            self.__authorizer.set_authorization_header(headers)
+            res = requests.get("{}{}{}".format(self.service_loc, self.all_status_route,
+                                               (_admin_code or "")), headers=headers)
+
+        try:
+            json_res = res.json()
+        except Exception:
+            if res.status_code < 300:
+                print("Error decoding {} response: {}".format(res.status_code, res.content))
+            else:
+                print("Error {}. MDF Connect may be experiencing technical"
+                      " difficulties.".format(res.status_code))
+        else:
+            if res.status_code >= 300:
+                print("Error {} fetching status: {}".format(res.status_code, json_res))
+            elif raw:
+                return [sub for sub in json_res["submissions"] if (not active or sub["active"])]
+            else:
+                if not verbose:
+                    print()  # Newline, because non-verbose won't include one
+                for sub in json_res["submissions"]:
+                    if not active or sub["active"]:
+                        if verbose:
+                            # Same message as check_status() with extra spacing
+                            print("\n\n", sub["status_message"], "\nThis submission is ",
+                                  ("active." if sub["active"] else "inactive."), sep="")
+                        else:
+                            # Decide if submission failed/succeeded/in processing/etc.
+                            if "F" in sub["status_code"]:
+                                status_word = "Failed"
+                            elif "P" in sub["status_code"]:
+                                status_word = "Processing"
+                            elif sub["status_code"][-1] == "S":
+                                status_word = "Succeeded"
+                            elif sub["status_code"][-1] == "X":
+                                status_word = "Cancelled"
+                            elif sub["status_code"][0] == "z":
+                                status_word = "Not started"
+                            elif "R" in sub["status_code"]:
+                                status_word = "Retrying error"
+                            else:
+                                status_word = "Unknown"
+                            print("{}: {} - {}".format(sub["source_id"],
+                                                       ("Active" if sub["active"] else "Inactive"),
+                                                       status_word))
