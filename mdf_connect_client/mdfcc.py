@@ -23,13 +23,14 @@ class MDFConnectClient:
         globus_sdk.NullAuthorizer
     ]
 
-    def __init__(self, dc=None, mdf=None, mrr=None, custom=None,
+    def __init__(self, dc=None, mdf=None, mrr=None, custom=None, sn_block=None,
                  data=None, index=None, services=None, test=False,
                  service_instance=None, authorizer=None):
         self.dc = dc or {}
         self.mdf = mdf or {}
         self.mrr = mrr or {}
         self.custom = custom or {}
+        self.sn_block = sn_block or {}
         self.data = data or []
         self.index = index or {}
         self.services = services or {}
@@ -283,7 +284,7 @@ class MDFConnectClient:
         self.mrr = mrr_data
 
     def set_custom_block(self, custom_fields):
-        """Set the __custom block for your dataset.
+        """Set the custom block for your dataset.
 
         Arguments:
         custom_fields (dict): Custom field-value pairs for your dataset.
@@ -298,7 +299,7 @@ class MDFConnectClient:
         self.custom = custom_fields
 
     def set_custom_descriptions(self, custom_descriptions):
-        """Add descriptions to your __custom block.
+        """Add descriptions to your custom block.
 
         Arguments:
         custom_descriptions (dict): Custom field-description pairs for your dataset.
@@ -312,17 +313,34 @@ class MDFConnectClient:
         for field, desc in custom_descriptions.items():
             self.custom[field+"_desc"] = desc
 
+    def set_source_name_block(self, source_fields):
+        """Set the custom block for your dataset.
+
+        Arguments:
+        custom_fields (dict): Custom field-value pairs for your dataset.
+                              You may add descriptions of your fields by creating a new field
+                              called [field]_desc with the string description inside, or by
+                              calling set_custom_descriptions().
+        """
+        try:
+            json.dumps(source_fields, allow_nan=False)
+        except Exception as e:
+            return "Error: Your source_name block is invalid: {}".format(repr(e))
+        self.sn_block = source_fields
+
     def add_data(self, data_location):
         """Add a data location to your dataset.
         Note that this method is cumulative, so calls do not overwrite previous ones.
 
         Arguments:
-        data_location (str or list of str): The location(s) of the data.
-                                            These should be formatted with protocol.
-                                            Examples:
-                                                https://example.com/path/data.zip
-                                                https://www.globus.org/app/transfer?...
-                                                globus://endpoint123/path/data.out
+            data_location (str or list of str): The location(s) of the data.
+                    These should be formatted with protocol.
+
+                    Examples:
+                        https://example.com/path/data.zip
+                        https://www.globus.org/app/transfer?...
+                        globus://endpoint123/path/data.out
+
         """
         if not isinstance(data_location, list):
             data_location = [data_location]
@@ -338,32 +356,28 @@ class MDFConnectClient:
         but multiple calls with the same data type will overwrite each other.
 
         Arguments:
-        data_type (str): The type of data to apply to. Supported types are:
-                         json
-                         csv
-                         yaml
-                         xml
-                         excel
-                         filename
-        mapping (dict): The mapping of MDF fields to your data type's fields.
-                        It is strongly recommended that you use "dot notation",
-                        where nested JSON objects are represented with a period.
-                        Examples:
-                        {
-                            "material.composition": "my_json.data.stuff.comp",
-                            "dft.converged": "my_json.data.dft.abcd"
-                        }
-                        {
-                            "material.composition": "csv_header_1",
-                            "crystal_structure.space_group_number": "csv_header_2"
-                        }
-        delimiter (str): The character that delimits cells in a table.
-                         Only applicable to tabular data.
-                         Default comma.
-        na_values (str or list of str): Values to treat as N/A (not applicable/available).
-                                        Applies to all values.
-                                        For tabular data, default blank and space.
-                                        For other data, default None.
+            data_type (str): The type of data to apply to. Supported types are: ``json``, ``csv``,
+                    ``yaml``, ``xml``,  ``excel``, and ``filename``.
+            mapping (dict): The mapping of MDF fields to your data type's fields.
+                            It is strongly recommended that you use "dot notation",
+                            where nested JSON objects are represented with a period.
+                            Examples:
+                            {
+                                "material.composition": "my_json.data.stuff.comp",
+                                "dft.converged": "my_json.data.dft.abcd"
+                            }
+                            {
+                                "material.composition": "csv_header_1",
+                                "crystal_structure.space_group_number": "csv_header_2"
+                            }
+            delimiter (str): The character that delimits cells in a table.
+                             Only applicable to tabular data.
+                             Default comma.
+            na_values (str or list of str): Values to treat as N/A (not applicable/available).
+                                            Applies to all values.
+                                            For tabular data, default blank and space.
+                                            For other data, default None.
+
         """
         # TODO: Additional validation
         try:
@@ -437,7 +451,9 @@ class MDFConnectClient:
         if self.mrr:
             submission["mrr"] = self.mrr
         if self.custom:
-            submission["__custom"] = self.custom
+            submission["custom"] = self.custom
+        if self.sn_block:
+            submission["__source_name"] = self.sn_block
         if self.index:
             submission["index"] = self.index
         if self.services:
