@@ -237,6 +237,16 @@ def test_set_custom_descriptions():
     }
 
 
+def test_set_project_block():
+    mdf = MDFConnectClient()
+    mdf.set_project_block("proj1", {"foo": "bar"})
+    assert mdf.projects == {"proj1": {"foo": "bar"}}
+    # OOR floats not allowed
+    res = mdf.set_project_block("proj2", {"foo": float("nan")})
+    assert "Out of range float values are not JSON compliant" in res
+    assert mdf.projects == {"proj1": {"foo": "bar"}}
+
+
 def test_data():
     mdf = MDFConnectClient()
     mdf.add_data("https://example.com/path/data.zip")
@@ -347,9 +357,11 @@ def test_submission():
     mdf.dc = {"a": "a"}
     mdf.mdf = {"b": "b"}
     mdf.services = {"c": "c"}
+    mdf.projects = {"foo": {"bar": "baz"}}
     assert mdf.get_submission() == {
         "dc": {"a": "a"},
         "mdf": {"b": "b"},
+        "projects": {"foo": {"bar": "baz"}},
         "services": {"c": "c"},
         "data": [],
         "test": False

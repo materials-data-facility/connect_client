@@ -24,13 +24,14 @@ class MDFConnectClient:
     ]
 
     def __init__(self, dc=None, mdf=None, mrr=None, custom=None, sn_block=None,
-                 data=None, index=None, services=None, test=False,
+                 projects=None, data=None, index=None, services=None, test=False,
                  service_instance=None, authorizer=None):
         self.dc = dc or {}
         self.mdf = mdf or {}
         self.mrr = mrr or {}
         self.custom = custom or {}
         self.sn_block = sn_block or {}
+        self.projects = {}
         self.data = data or []
         self.index = index or {}
         self.services = services or {}
@@ -274,6 +275,20 @@ class MDFConnectClient:
         """Clear all added repositories from the submission."""
         self.mdf.pop("repositories", None)
 
+    def set_project_block(self, project, data):
+        """Set the project block for your dataset.
+        Intended only for use by members of an approved project.
+
+        Arguments:
+        project (str): The name of the project block.
+        data (dict): The data for the project block.
+        """
+        try:
+            json.dumps(data, allow_nan=False)
+        except Exception as e:
+            return "Your project block is invalid: {}".format(repr(e))
+        self.projects[project] = data
+
     def create_mrr_block(self, mrr_data):
         """Create the mrr block for your dataset.
         Note that this helper will be more helpful in the future.
@@ -454,6 +469,8 @@ class MDFConnectClient:
             submission["custom"] = self.custom
         if self.sn_block:
             submission["__source_name"] = self.sn_block
+        if self.projects:
+            submission["projects"] = self.projects
         if self.index:
             submission["index"] = self.index
         if self.services:
@@ -475,6 +492,8 @@ class MDFConnectClient:
         self.mdf = {}
         self.mrr = {}
         self.custom = {}
+        self.sn_block = {}
+        self.projects = {}
         self.clear_data()
         self.clear_index()
         self.clear_services()
