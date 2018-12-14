@@ -23,14 +23,13 @@ class MDFConnectClient:
         globus_sdk.NullAuthorizer
     ]
 
-    def __init__(self, dc=None, mdf=None, mrr=None, custom=None, sn_block=None,
-                 projects=None, data=None, index=None, services=None, test=False,
+    def __init__(self, dc=None, mdf=None, mrr=None, custom=None, projects=None,
+                 data=None, index=None, services=None, test=False,
                  service_instance=None, authorizer=None):
         self.dc = dc or {}
         self.mdf = mdf or {}
         self.mrr = mrr or {}
         self.custom = custom or {}
-        self.sn_block = sn_block or {}
         self.projects = {}
         self.data = data or []
         self.index = index or {}
@@ -328,21 +327,6 @@ class MDFConnectClient:
         for field, desc in custom_descriptions.items():
             self.custom[field+"_desc"] = desc
 
-    def set_source_name_block(self, source_fields):
-        """Set the custom block for your dataset.
-
-        Arguments:
-        custom_fields (dict): Custom field-value pairs for your dataset.
-                              You may add descriptions of your fields by creating a new field
-                              called [field]_desc with the string description inside, or by
-                              calling set_custom_descriptions().
-        """
-        try:
-            json.dumps(source_fields, allow_nan=False)
-        except Exception as e:
-            return "Error: Your source_name block is invalid: {}".format(repr(e))
-        self.sn_block = source_fields
-
     def add_data(self, data_location):
         """Add a data location to your dataset.
         Note that this method is cumulative, so calls do not overwrite previous ones.
@@ -467,8 +451,6 @@ class MDFConnectClient:
             submission["mrr"] = self.mrr
         if self.custom:
             submission["custom"] = self.custom
-        if self.sn_block:
-            submission["__source_name"] = self.sn_block
         if self.projects:
             submission["projects"] = self.projects
         if self.index:
@@ -492,7 +474,6 @@ class MDFConnectClient:
         self.mdf = {}
         self.mrr = {}
         self.custom = {}
-        self.sn_block = {}
         self.projects = {}
         self.clear_data()
         self.clear_index()
