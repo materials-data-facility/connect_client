@@ -13,8 +13,8 @@ Index
 
    mdf_connect_client
 
-* `Basic Tutorial <tutorials/Basic\ MDF\ Connect\ Submission\ Example.html>`_
-* `Advanced Tutorial <tutorials/MDF\ Connect\ Client\ Tutorial.html>`_
+* `Basic Tutorial <tutorials/Basic_MDF_Connect_Submission_Example.html>`_
+* `Advanced Tutorial <tutorials/MDF_Connect_Client_Tutorial.html>`_
 * `Sitemap <genindex.html>`_
 
 
