@@ -9,13 +9,9 @@ Index
 
 .. toctree::
    :maxdepth: 2
-   :titlesonly:
 
-   mdf_connect_client
-
-* `Basic Tutorial <tutorials/Basic_MDF_Connect_Submission_Example.html>`_
-* `Advanced Tutorial <tutorials/MDF_Connect_Client_Tutorial.html>`_
-* `Sitemap <genindex.html>`_
+   MDF Connect Client <mdf_connect_client>
+   Tutorials <tutorial_list>
 
 
 .. mdinclude:: ../../../README.md

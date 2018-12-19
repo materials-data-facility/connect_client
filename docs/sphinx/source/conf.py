@@ -20,7 +20,7 @@ import sphinx_bootstrap_theme
 
 # -- Project information -----------------------------------------------------
 
-project = 'mdf-connect-client'
+project = 'MDF Connect Client'
 copyright = '2018, The University of Chicago'
 author = 'The University of Chicago'
 
@@ -44,6 +44,7 @@ extensions = [
     'sphinx.ext.coverage',
     'sphinx.ext.viewcode',
     'sphinx.ext.napoleon',
+    'sphinx.ext.mathjax',
     'm2r',
     'nbsphinx'
 ]

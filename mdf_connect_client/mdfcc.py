@@ -14,7 +14,7 @@ CONNECT_ALL_STATUS_ROUTE = "/submissions/"
 
 
 class MDFConnectClient:
-    """MDFConnect"""
+    """The MDF Connect Client is the Python client to easily submit datasets to MDF Connect."""
     __app_name = "MDF_Connect_Client"
     __login_services = ["connect"]
     __allowed_authorizers = [
@@ -499,7 +499,7 @@ class MDFConnectClient:
         Returns:
             *dict*: The variables that are NOT cleared, which includes:
                     * **test**: (*bool*) - If the submission is a test submission or not.
-                    * **service_location** - The URL of the MDF Connect server in use.
+                    * **service_location** (*str*) - The URL of the MDF Connect server in use.
         """
         self.dc = {}
         self.mdf = {}
@@ -634,7 +634,7 @@ class MDFConnectClient:
                     **Default:** ``False``
 
         Returns:
-            If raw is ``True``, *dict*: The full status.
+            If ``raw`` is ``True``, *dict*: The full status.
         """
         if not source_id and not self.source_id:
             print("Error: No dataset submitted")
