@@ -24,7 +24,8 @@ class MDFConnectClient:
     ]
 
     def __init__(self, test=False, dc=None, mdf=None, mrr=None, custom=None, projects=None,
-                 data=None, index=None, services=None, service_instance=None, authorizer=None):
+                 data=None, index=None, conversion_config=None, services=None,
+                 service_instance=None, authorizer=None):
         """Create an MDF Connect Client.
 
         Arguments:
@@ -40,6 +41,8 @@ class MDFConnectClient:
             projects (dict): Initial value for the ``projects`` block. **Default:** ``{}``.
             data (dict): Initial value for the ``data`` block. **Default:** ``[]``.
             index (dict): Initial value for the ``index`` block. **Default:** ``{}``.
+            conversion_config (dict): Initial value for the ``conversion_config`` block.
+                    **Default:** ``{}``.
             services (dict): Initial value for the ``services`` block. **Default:** ``{}``.
             service_instance (str): The instance of the MDF Connect API to use.
                     This value should not normally be changed from the default.
@@ -58,6 +61,7 @@ class MDFConnectClient:
         self.projects = projects or {}
         self.data = data or []
         self.index = index or {}
+        self.conversion_config = conversion_config or {}
         self.services = services or {}
         self.test = test
 
@@ -423,6 +427,19 @@ class MDFConnectClient:
         """Clear all indexing instructions set so far."""
         self.index = {}
 
+    def set_conversion_config(self, config):
+        """Set advanced configuration parameters for dataset conversion.
+        These parameters are intended for advanced users and/or special-case datasets.
+
+        Arguments:
+            config (dict): The conversion configuration parameters.
+        """
+        try:
+            json.dumps(config, allow_nan=False)
+        except Exception as e:
+            return "Error: Your conversion config is invalid: {}".format(repr(e))
+        self.conversion_config = config
+
     def add_service(self, service, parameters=None):
         """Add a service for data submission.
 
@@ -486,6 +503,8 @@ class MDFConnectClient:
             submission["projects"] = self.projects
         if self.index:
             submission["index"] = self.index
+        if self.conversion_config:
+            submission["conversion_config"] = self.conversion_config
         if self.services:
             submission["services"] = self.services
         return submission
