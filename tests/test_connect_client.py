@@ -151,7 +151,7 @@ def test_create_dc_block():
                 'givenName': 'Junior'
             }
         ],
-        'publicationYear': '2018',
+        'publicationYear': '2019',
         'publisher': 'Materials Data Facility',
         'resourceType': {
             'resourceType': 'Dataset',
@@ -218,6 +218,9 @@ def test_set_custom_block():
     res = mdf.set_custom_block({"foo": float("nan")})
     assert "Out of range float values are not JSON compliant" in res
     assert mdf.custom == {"foo": "bar"}
+    # Clear block
+    mdf.set_custom_block({})
+    assert mdf.custom == {}
 
 
 def test_set_custom_descriptions():
@@ -235,6 +238,16 @@ def test_set_custom_descriptions():
         "foo": "bar",
         "foo_desc": "This is a foo"
     }
+
+
+def test_set_project_block():
+    mdf = MDFConnectClient()
+    mdf.set_project_block("proj1", {"foo": "bar"})
+    assert mdf.projects == {"proj1": {"foo": "bar"}}
+    # OOR floats not allowed
+    res = mdf.set_project_block("proj2", {"foo": float("nan")})
+    assert "Out of range float values are not JSON compliant" in res
+    assert mdf.projects == {"proj1": {"foo": "bar"}}
 
 
 def test_data():
@@ -298,6 +311,19 @@ def test_index():
     assert mdf.index == {}
 
 
+def test_conversion_config():
+    mdf = MDFConnectClient()
+    mdf.set_conversion_config({"group_by_dir": True})
+    assert mdf.conversion_config == {"group_by_dir": True}
+    # OOR floats not allowed
+    res = mdf.set_conversion_config({"dirs": float("nan")})
+    assert "Error: Your conversion config is invalid" in res
+    assert mdf.conversion_config == {"group_by_dir": True}
+    # Clear block
+    mdf.set_conversion_config({})
+    assert mdf.conversion_config == {}
+
+
 def test_services():
     mdf = MDFConnectClient()
     # No parameters
@@ -347,9 +373,11 @@ def test_submission():
     mdf.dc = {"a": "a"}
     mdf.mdf = {"b": "b"}
     mdf.services = {"c": "c"}
+    mdf.projects = {"foo": {"bar": "baz"}}
     assert mdf.get_submission() == {
         "dc": {"a": "a"},
         "mdf": {"b": "b"},
+        "projects": {"foo": {"bar": "baz"}},
         "services": {"c": "c"},
         "data": [],
         "test": False
