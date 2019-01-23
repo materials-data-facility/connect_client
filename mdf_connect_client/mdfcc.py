@@ -144,6 +144,12 @@ class MDFConnectClient:
         These arguments should be valid DataCite, as listed in the MDF Connect documentation.
         This is completely optional.
         """
+        if not title and not authors:
+            raise TypeError("'title' and 'authors' are required arguments.")
+        if not title:
+            raise TypeError("'title' is a required arguments.")
+        if not authors:
+            raise TypeError("'authors' is a required argument.")
         # titles
         if not isinstance(title, list):
             title = [title]
@@ -636,7 +642,8 @@ class MDFConnectClient:
         return {
             "source_id": source_id,
             "success": error is None,
-            "error": error
+            "error": error,
+            "status_code": res.status_code
         }
 
     def check_status(self, source_id=None, raw=False):
