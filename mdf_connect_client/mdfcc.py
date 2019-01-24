@@ -144,6 +144,12 @@ class MDFConnectClient:
         These arguments should be valid DataCite, as listed in the MDF Connect documentation.
         This is completely optional.
         """
+        if not title and not authors:
+            raise TypeError("'title' and 'authors' are required arguments.")
+        if not title:
+            raise TypeError("'title' is a required arguments.")
+        if not authors:
+            raise TypeError("'authors' is a required argument.")
         # titles
         if not isinstance(title, list):
             title = [title]
@@ -636,7 +642,8 @@ class MDFConnectClient:
         return {
             "source_id": source_id,
             "success": error is None,
-            "error": error
+            "error": error,
+            "status_code": res.status_code
         }
 
     def check_status(self, source_id=None, raw=False):
@@ -653,7 +660,7 @@ class MDFConnectClient:
                     **Default:** ``False``
 
         Returns:
-            If ``raw`` is ``True``, *dict*: The full status.
+            If ``raw`` is ``True``, *dict*: The full status result.
         """
         if not source_id and not self.source_id:
             print("Error: No dataset submitted")
@@ -671,17 +678,24 @@ class MDFConnectClient:
 
         try:
             json_res = res.json()
-        except Exception:
-            if res.status_code < 300:
+        except Exception as e:
+            if raw:
+                return {
+                    "success": False,
+                    "error": "{}: {}".format(e, res.content),
+                    "status_code": res.status_code
+                }
+            elif res.status_code < 300:
                 print("Error decoding {} response: {}".format(res.status_code, res.content))
             else:
                 print("Error {}. MDF Connect may be experiencing technical"
                       " difficulties.".format(res.status_code))
         else:
-            if res.status_code >= 300:
+            if raw:
+                json_res["status_code"] = res.status_code
+                return json_res
+            elif res.status_code >= 300:
                 print("Error {} fetching status: {}".format(res.status_code, json_res))
-            elif raw:
-                return json_res["status"]
             else:
                 print("\n", json_res["status"]["status_message"], "\nThis submission is ",
                       ("active." if json_res["status"]["active"] else "inactive."), sep="")
@@ -712,7 +726,7 @@ class MDFConnectClient:
                     **Default:** ``None``, the only valid value for non-admins.
 
         Returns:
-            if raw is ``True``, *list of dict*: The full statuses.
+            if raw is ``True``, *dict*: The full status results.
         """
         headers = {}
         self.__authorizer.set_authorization_header(headers)
@@ -727,17 +741,26 @@ class MDFConnectClient:
 
         try:
             json_res = res.json()
-        except Exception:
-            if res.status_code < 300:
+        except Exception as e:
+            if raw:
+                return {
+                    "success": False,
+                    "error": "{}: {}".format(e, res.content),
+                    "status_code": res.status_code
+                }
+            elif res.status_code < 300:
                 print("Error decoding {} response: {}".format(res.status_code, res.content))
             else:
                 print("Error {}. MDF Connect may be experiencing technical"
                       " difficulties.".format(res.status_code))
         else:
-            if res.status_code >= 300:
+            if raw:
+                json_res["status_code"] = res.status_code
+                json_res["submissions"] = [sub for sub in json_res["submissions"]
+                                           if (not active or sub["active"])]
+                return json_res
+            elif res.status_code >= 300:
                 print("Error {} fetching status: {}".format(res.status_code, json_res))
-            elif raw:
-                return [sub for sub in json_res["submissions"] if (not active or sub["active"])]
             else:
                 if not verbose:
                     print()  # Newline, because non-verbose won't include one
