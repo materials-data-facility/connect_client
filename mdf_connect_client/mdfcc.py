@@ -8,7 +8,7 @@ import requests
 
 CONNECT_SERVICE_LOC = "https://api.materialsdatafacility.org"
 CONNECT_DEV_LOC = "https://dev-api.materialsdatafacility.org"
-CONNECT_CONVERT_ROUTE = "/convert"
+CONNECT_CONVERT_ROUTE = "/submit"
 CONNECT_STATUS_ROUTE = "/status/"
 CONNECT_ALL_STATUS_ROUTE = "/submissions/"
 
@@ -23,9 +23,7 @@ class MDFConnectClient:
         globus_sdk.NullAuthorizer
     ]
 
-    def __init__(self, test=False, dc=None, mdf=None, mrr=None, custom=None, projects=None,
-                 data=None, index=None, conversion_config=None, services=None,
-                 service_instance=None, authorizer=None):
+    def __init__(self, test=False, service_instance=None, authorizer=None):
         """Create an MDF Connect Client.
 
         Arguments:
@@ -34,16 +32,6 @@ class MDFConnectClient:
                     test/sandbox/temporary resources instead of live resources.
                     This includes the ``mdf-test`` Search index and MDF Test Publish collection.
                     **Default:** ``False``
-            dc (dict): Initial value for the ``dc`` block. **Default:** ``{}``.
-            mdf (dict): Initial value for the ``mdf`` block. **Default:** ``{}``.
-            mrr (dict): Initial value for the ``mrr`` block. **Default:** ``{}``.
-            custom (dict): Initial value for the ``custom`` block. **Default:** ``{}``.
-            projects (dict): Initial value for the ``projects`` block. **Default:** ``{}``.
-            data (dict): Initial value for the ``data`` block. **Default:** ``[]``.
-            index (dict): Initial value for the ``index`` block. **Default:** ``{}``.
-            conversion_config (dict): Initial value for the ``conversion_config`` block.
-                    **Default:** ``{}``.
-            services (dict): Initial value for the ``services`` block. **Default:** ``{}``.
             service_instance (str): The instance of the MDF Connect API to use.
                     This value should not normally be changed from the default.
                     **Default:** ``None``, to use the default API instance.
@@ -54,17 +42,22 @@ class MDFConnectClient:
         Returns:
             *MDFConnectClient*: An initialized, authenticated MDF Connect Client.
         """
-        self.dc = dc or {}
-        self.mdf = mdf or {}
-        self.mrr = mrr or {}
-        self.custom = custom or {}
-        self.projects = projects or {}
-        self.data = data or []
-        self.index = index or {}
-        self.conversion_config = conversion_config or {}
-        self.services = services or {}
         self.test = test
-
+        self.update = False
+        '''
+        self.dc = {}
+        self.mdf = {}
+        self.mrr = {}
+        self.custom = {}
+        self.projects = {}
+        self.data_sources = []
+        self.data_destinations = []
+        self.index = {}
+        self.conversion_config = {}
+        self.services = {}
+        self.tags = []
+        self.update = False
+        '''
         if service_instance == "prod" or service_instance is None:
             self.service_loc = CONNECT_SERVICE_LOC
         elif service_instance == "dev":
@@ -75,7 +68,7 @@ class MDFConnectClient:
         self.status_route = CONNECT_STATUS_ROUTE
         self.all_status_route = CONNECT_ALL_STATUS_ROUTE
 
-        self.source_id = None
+        self.reset_submission()
 
         if any([isinstance(authorizer, allowed) for allowed in self.__allowed_authorizers]):
             self.__authorizer = authorizer
@@ -85,6 +78,11 @@ class MDFConnectClient:
                                                    }).get("connect")
         if not self.__authorizer:
             raise ValueError("Unable to authenticate")
+
+    def logout(self):
+        """Log out by removing cached tokens and discarding the client's authorizer"""
+        self.__authorizer = None
+        mdf_toolbox.logout()
 
     def create_dc_block(self, title, authors,
                         affiliations=None, publisher=None, publication_year=None,
@@ -181,7 +179,7 @@ class MDFConnectClient:
             family = family.strip()
             given = given.strip()
             creator = {
-                "creatorName": family + ", " + given,
+                "creatorName": "{}, {}".format(family, given),
                 "familyName": family,
                 "givenName": given
             }
@@ -286,28 +284,29 @@ class MDFConnectClient:
         """Remove a previously set source_name."""
         self.mdf.pop("source_name", None)
 
-    def add_repositories(self, repositories):
-        """Add repositories to your dataset.
+    def add_organizations(self, organizations):
+        """Set the organizations for your dataset.
 
         Arguments:
-            repositories (str or list of str): The repository or repositories to add.
-                    If the repository is not known to MDF, it will be discarded.
-                    Additional repositories may be added automatically.
+            organizations (str or list of str): The organization(s) to add.
+                    If the organization is not registered with MDF, it will be discarded.
+                    Additional organizations may be added automatically.
         """
-        if not isinstance(repositories, list):
-            repositories = [repositories]
-        if not self.mdf.get("repositories"):
-            self.mdf["repositories"] = repositories
+        if not isinstance(organizations, list):
+            organizations = [organizations]
+        if not self.mdf.get("organizations"):
+            self.mdf["organizations"] = organizations
         else:
-            self.mdf["repositories"].extend(repositories)
+            self.mdf["organizations"].extend(organizations)
 
-    def clear_repositories(self):
-        """Clear all added repositories from the submission."""
-        self.mdf.pop("repositories", None)
+    def clear_organizations(self):
+        """Clear all added organizations from the submission."""
+        self.mdf.pop("organizations", None)
 
     def set_project_block(self, project, data):
         """Set the project block for your dataset.
         Intended only for use by members of an approved project.
+        To delete a project block, call this method with ``data=None``.
 
         Arguments:
             project (str): The name of the project block.
@@ -317,7 +316,10 @@ class MDFConnectClient:
             json.dumps(data, allow_nan=False)
         except Exception as e:
             return "Your project block is invalid: {}".format(repr(e))
-        self.projects[project] = data
+        if data:
+            self.projects[project] = data
+        else:
+            self.projects.pop(project, None)
 
     def create_mrr_block(self, mrr_data):
         """Create the mrr block for your dataset.
@@ -358,12 +360,12 @@ class MDFConnectClient:
         for field, desc in custom_descriptions.items():
             self.custom[field+"_desc"] = desc
 
-    def add_data(self, data_location):
-        """Add a data location to your dataset.
+    def add_data_source(self, data_source):
+        """Add a data source to your submission.
         Note that this method is cumulative, so calls do not overwrite previous ones.
 
         Arguments:
-            data_location (str or list of str): The location(s) of the data.
+            data_source (str or list of str): The location(s) of the data.
                     These should be formatted with protocol.
 
                     Examples:
@@ -372,13 +374,32 @@ class MDFConnectClient:
                         ``"globus://endpoint123/path/data.out"``
 
         """
-        if not isinstance(data_location, list):
-            data_location = [data_location]
-        self.data.extend(data_location)
+        if not isinstance(data_source, list):
+            data_source = [data_source]
+        self.data_sources.extend(data_source)
 
-    def clear_data(self):
-        """Clear all data added so far to your dataset."""
-        self.data = []
+    def clear_data_sources(self):
+        """Clear all data sources added so far to your dataset."""
+        self.data_sources = []
+
+    def add_data_destination(self, data_destination):
+        """Add a data destination to your submission.
+        Note that this method is cumulative, so calls do not overwrite previous ones.
+
+        Arguments:
+            data_destination (str or list of str): The destination for the data.
+                    Destinations must be Globus Endpoints, and formatted with protocol.
+
+                    Example:
+                        ``"globus://endpoint123/path/data.out"``
+        """
+        if not isinstance(data_destination, list):
+            data_destination = [data_destination]
+        self.data_destinations.extend(data_destination)
+
+    def clear_data_destinations(self):
+        """Clear all data destinations added so far to your dataset."""
+        self.data_destinations = []
 
     def add_index(self, data_type, mapping, delimiter=None, na_values=None):
         """Add indexing instructions for your dataset.
@@ -476,6 +497,40 @@ class MDFConnectClient:
         """Clear all services added so far."""
         self.services = {}
 
+    def add_tag(self, tag):
+        """Add a tag or keyword to your dataset.
+        Note that this method is cumulative, so calls do not overwrite previous ones.
+
+        Note:
+            Setting tags here is equivalent to setting tags in ``create_dc_block(subjects=...)``.
+            This method exists only for convenience.
+
+        Arguments:
+            tag (str or list of str): The tag(s) to add.
+        """
+        if not isinstance(tag, list):
+            tag = [tag]
+        self.tags.extend(tag)
+
+    def clear_tags(self):
+        """Clear all tags added so far to your dataset."""
+        self.tags = []
+
+    def set_curation(self, curation):
+        """Set the curation flag for this submission.
+
+        Note:
+            Normally, this flag is set automatically by an organization, and is not set
+            manually by the dataset submitter.
+
+        Arguments:
+            curation (bool): When ``False``, the dataset will be processed normally.
+                    When ``True``, the dataset must be approved in curation
+                    before it will be ingested to MDF Search or any other service.
+                    **Default:** ``False``
+        """
+        self.curation = curation
+
     def set_test(self, test):
         """Set the test flag for this dataset.
 
@@ -496,8 +551,9 @@ class MDFConnectClient:
         """
         submission = {
             "dc": self.dc,
-            "data": self.data,
-            "test": self.test
+            "data_sources": self.data_sources,
+            "test": self.test,
+            "update": self.update
         }
         if self.mdf:
             submission["mdf"] = self.mdf
@@ -507,17 +563,26 @@ class MDFConnectClient:
             submission["custom"] = self.custom
         if self.projects:
             submission["projects"] = self.projects
+        if self.data_destinations:
+            submission["data_destinations"] = self.data_destinations
         if self.index:
             submission["index"] = self.index
         if self.conversion_config:
             submission["conversion_config"] = self.conversion_config
         if self.services:
             submission["services"] = self.services
+        if self.tags:
+            submission["tags"] = self.tags
+        if self.curation:
+            submission["curation"] = self.curation
         return submission
 
     def reset_submission(self):
-        """Completely clear all metadata from your submission.
-        **This action cannot be undone.**
+        """Reset and clear metadata from your submission.
+
+        Warning:
+            **This action cannot be undone.**
+
         The last submission's source_id will also be cleared. If you want to use ``check_status``,
         you will be required to input the ``source_id`` manually.
 
@@ -529,11 +594,19 @@ class MDFConnectClient:
         self.dc = {}
         self.mdf = {}
         self.mrr = {}
-        self.custom = {}
+
         self.projects = {}
-        self.clear_data()
+
+        self.set_custom_block({})
+        self.set_conversion_config({})
+        self.set_curation(False)
+
+        self.clear_data_sources()
+        self.clear_data_destinations()
         self.clear_index()
         self.clear_services()
+        self.clear_tags()
+
         self.source_id = None
 
         return {
@@ -569,27 +642,21 @@ class MDFConnectClient:
                     your submission of the dataset.
                 * **error** (*string*) - Error message, if applicable.
         """
-        # Ensure resubmit matches reality
-        if not resubmit and self.source_id:
-            return {
-                'source_id': None,
-                'success': False,
-                'error': ("You have already submitted this dataset."
-                          " Set resubmit=True to resubmit it")
-            }
-        elif resubmit and not self.source_id:
-            return {
-                'source_id': None,
-                'success': False,
-                'error': ("You have not already submitted this dataset,"
-                          " so it cannot be resubmitted.")
-            }
-
+        # If submission not supplied, get from stored values
         if not submission:
+            # Ensure resubmit set if known resubmission
+            if not resubmit and self.source_id:
+                return {
+                    'source_id': None,
+                    'success': False,
+                    'error': ("You have already submitted this dataset."
+                              " Set resubmit=True to resubmit it")
+                }
+            self.update = resubmit
             submission = self.get_submission()
 
         # Check for required data
-        if not submission["dc"] or not submission["data"]:
+        if not submission["dc"] or not submission["data_sources"]:
             return {
                 'source_id': None,
                 'success': False,
