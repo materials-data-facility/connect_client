@@ -399,6 +399,15 @@ def test_set_test():
     assert mdf2.test is True
 
 
+def test_passthrough():
+    mdf = MDFConnectClient()
+    assert mdf.no_convert is False
+    mdf.set_passthrough(True)
+    assert mdf.no_convert is True
+    mdf.set_passthrough(False)
+    assert mdf.no_convert is False
+
+
 def test_submission():
     mdf = MDFConnectClient()
     assert insensitive_comparison(mdf.get_submission(),

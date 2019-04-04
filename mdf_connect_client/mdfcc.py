@@ -44,20 +44,6 @@ class MDFConnectClient:
         """
         self.test = test
         self.update = False
-        '''
-        self.dc = {}
-        self.mdf = {}
-        self.mrr = {}
-        self.custom = {}
-        self.projects = {}
-        self.data_sources = []
-        self.data_destinations = []
-        self.index = {}
-        self.conversion_config = {}
-        self.services = {}
-        self.tags = []
-        self.update = False
-        '''
         if service_instance == "prod" or service_instance is None:
             self.service_loc = CONNECT_SERVICE_LOC
         elif service_instance == "dev":
@@ -543,6 +529,22 @@ class MDFConnectClient:
         """
         self.test = test
 
+    def set_passthrough(self, passthrough):
+        """Set the dataset pass-through flag for your submission.
+
+        Caution:
+            This flag will cause your dataset to not be parsed by MDF Connect, so only
+            high-level dataset metadata will be available in MDF Search. *This flag is only
+            intended for oversize datasets that cannot be parsed.* If your dataset is not
+            oversize, do not set this flag.
+
+        Arguments:
+            passthrough (bool): When ``False``, the dataset will be processed normally.
+                    When ``True``, the files in the dataset will not be parsed.
+                    **Default:** ``False``
+        """
+        self.no_convert = passthrough
+
     def get_submission(self):
         """Fetch the current state of your submission.
 
@@ -575,6 +577,8 @@ class MDFConnectClient:
             submission["tags"] = self.tags
         if self.curation:
             submission["curation"] = self.curation
+        if self.no_convert:
+            submission["no_convert"] = self.no_convert
         return submission
 
     def reset_submission(self):
@@ -600,6 +604,7 @@ class MDFConnectClient:
         self.set_custom_block({})
         self.set_conversion_config({})
         self.set_curation(False)
+        self.set_passthrough(False)
 
         self.clear_data_sources()
         self.clear_data_destinations()
