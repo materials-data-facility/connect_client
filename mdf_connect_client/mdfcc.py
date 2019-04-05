@@ -270,20 +270,20 @@ class MDFConnectClient:
         """Remove a previously set source_name."""
         self.mdf.pop("source_name", None)
 
-    def add_organizations(self, organizations):
-        """Set the organizations for your dataset.
+    def add_organization(self, organization):
+        """Add your dataset to an organization.
 
         Arguments:
-            organizations (str or list of str): The organization(s) to add.
+            organization (str or list of str): The organization(s) to add.
                     If the organization is not registered with MDF, it will be discarded.
-                    Additional organizations may be added automatically.
+                    Parent organizations will be added automatically.
         """
-        if not isinstance(organizations, list):
-            organizations = [organizations]
+        if not isinstance(organization, list):
+            organization = [organization]
         if not self.mdf.get("organizations"):
-            self.mdf["organizations"] = organizations
+            self.mdf["organizations"] = organization
         else:
-            self.mdf["organizations"].extend(organizations)
+            self.mdf["organizations"].extend(organization)
 
     def clear_organizations(self):
         """Clear all added organizations from the submission."""

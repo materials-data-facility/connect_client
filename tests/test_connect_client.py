@@ -195,13 +195,13 @@ def test_source_name():
 
 def test_organizations():
     mdf = MDFConnectClient()
-    mdf.add_organizations("ANL")
-    mdf.add_organizations(["ORNL", "NREL"])
+    mdf.add_organization("ANL")
+    mdf.add_organization(["ORNL", "NREL"])
     assert mdf.mdf["organizations"] == ["ANL", "ORNL", "NREL"]
 
     mdf.clear_organizations()
     assert mdf.mdf.get("organizations", None) is None
-    mdf.add_organizations("APS")
+    mdf.add_organization("APS")
     assert mdf.mdf["organizations"] == ["APS"]
 
 
