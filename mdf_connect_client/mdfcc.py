@@ -11,6 +11,15 @@ CONNECT_DEV_LOC = "https://dev-api.materialsdatafacility.org"
 CONNECT_CONVERT_ROUTE = "/submit"
 CONNECT_STATUS_ROUTE = "/status/"
 CONNECT_ALL_STATUS_ROUTE = "/submissions/"
+CONNECT_CURATION_ROUTE = "/curate/"
+CONNECT_ALL_CURATION_ROUTE = "/curation/"
+CURATION_SUMMARY_STR = ("Submission: {source_id} by {submitter}\nWaiting since {waiting_since}"
+                        "\n{parsing_summary}")
+DEFAULT_CURATION_REASONS = {
+    "accept": "This submission has been accepted because it meets the appropriate standards.",
+    "reject": ("This submission has been rejected because it does not meet the "
+               "appropriate standards.")
+}
 
 
 class MDFConnectClient:
@@ -53,6 +62,10 @@ class MDFConnectClient:
         self.convert_route = CONNECT_CONVERT_ROUTE
         self.status_route = CONNECT_STATUS_ROUTE
         self.all_status_route = CONNECT_ALL_STATUS_ROUTE
+        self.curation_route = CONNECT_CURATION_ROUTE
+        self.all_curation_route = CONNECT_ALL_CURATION_ROUTE
+        self.curation_summary_template = CURATION_SUMMARY_STR
+        self.default_curation_reasons = DEFAULT_CURATION_REASONS
 
         self.reset_submission()
 
@@ -861,3 +874,273 @@ class MDFConnectClient:
                             print("{}: {} - {}".format(sub["source_id"],
                                                        ("Active" if sub["active"] else "Inactive"),
                                                        status_word))
+
+    def get_curation_task(self, source_id, summary=False, raw=False):
+        """Get the content of a curation task.
+        You must have curation permissions on the selected submission.
+
+        Arguments:
+            source_id (str): The ``source_id`` (``source_name`` + version information) of the
+                    curation task. You can acquire this through
+                    ``get_available_curation_tasks()``.
+            summary (bool): When ``False``, will print the entire curation task,
+                    including dataset entry and sample records.
+                    When ``True``, will only print a summary of the task.
+                    **Default:** ``False``
+            raw (bool): When ``False``, will print the curation task.
+                    When ``True``, will return a dictionary of the full result.
+                    Overrides the value of ``summary``.
+                    For direct human consumption, ``False`` is recommended.
+                    **Default:** ``False``
+
+        Returns:
+            if raw is ``True``, *dict*: The full task results.
+        """
+        headers = {}
+        self.__authorizer.set_authorization_header(headers)
+        res = requests.get(self.service_loc+self.curation_route+source_id, headers=headers)
+        # Handle first 401/403 by regenerating auth headers
+        if res.status_code == 401 or res.status_code == 403:
+            self.__authorizer.handle_missing_authorization()
+            self.__authorizer.set_authorization_header(headers)
+            res = requests.get(self.service_loc+self.curation_route+source_id, headers=headers)
+
+        try:
+            json_res = res.json()
+        except Exception as e:
+            if raw:
+                return {
+                    "success": False,
+                    "error": "{}: {}".format(e, res.content),
+                    "status_code": res.status_code
+                }
+            elif res.status_code < 300:
+                print("Error decoding {} response: {}".format(res.status_code, res.content))
+            else:
+                print("Error {}. MDF Connect may be experiencing technical"
+                      " difficulties.".format(res.status_code))
+        else:
+            if raw:
+                json_res["status_code"] = res.status_code
+                return json_res
+            elif res.status_code >= 300:
+                print("Error {} fetching curation task: {}"
+                      .format(res.status_code, json_res.get("error", json_res)))
+            elif summary:
+                task = json_res["curation_task"]
+                print(self.curation_summary_template.format(
+                                source_id=task["source_id"],
+                                submitter=task["submission_info"]["submitter"],
+                                waiting_since=task["curation_start_date"],
+                                parsing_summary=task["parsing_summary"]))
+            else:
+                print(json_res["curation_task"])
+
+    def get_available_curation_tasks(self, summary=True, raw=False, _admin_code=None):
+        """Get all curation tasks available to you.
+
+        Arguments:
+            summary (bool): When ``False``, will print the entire curation task,
+                    including dataset entry and sample records.
+                    When ``True``, will only print a summary of the task.
+                    Using the summary is recommended to find specific tasks to
+                    get full task information on using ``get_curation_task()``.
+                    **Default:** ``True``
+            raw (bool): When ``False``, will print out summaries of your available
+                    curation tasks. When ``True``, will return a dictionary containing
+                    the results.
+                    For direct human consumption, ``False`` is recommended.
+                    **Default:** ``False``
+            _admin_code (str): *For MDF Connect administrators only,* a special function code.
+                    Valid codes:
+
+                        * ``all``: All waiting curation tasks.
+
+                    Only MDF Connect administrators are allowed to use these codes.
+                    **Default:** ``None``, the only valid value for non-admins.
+
+        Returns:
+            if raw is ``True``, *dict*: The full task results.
+        """
+        headers = {}
+        self.__authorizer.set_authorization_header(headers)
+        res = requests.get(self.service_loc+self.all_curation_route+(_admin_code or ""),
+                           headers=headers)
+        # Handle first 401/403 by regenerating auth headers
+        if res.status_code == 401 or res.status_code == 403:
+            self.__authorizer.handle_missing_authorization()
+            self.__authorizer.set_authorization_header(headers)
+            res = requests.get(self.service_loc+self.all_curation_route+(_admin_code or ""),
+                               headers=headers)
+        try:
+            json_res = res.json()
+        except Exception as e:
+            if raw:
+                return {
+                    "success": False,
+                    "error": "{}: {}".format(e, res.content),
+                    "status_code": res.status_code
+                }
+            elif res.status_code < 300:
+                print("Error decoding {} response: {}".format(res.status_code, res.content))
+            else:
+                print("Error {}. MDF Connect may be experiencing technical"
+                      " difficulties.".format(res.status_code))
+        else:
+            if raw:
+                json_res["status_code"] = res.status_code
+                return json_res
+            elif res.status_code >= 300:
+                print("Error {} fetching curation tasks: {}"
+                      .format(res.status_code, json_res.get("error", json_res)))
+            elif summary:
+                for task in json_res["curation_tasks"]:
+                    print(self.curation_summary_template.format(
+                                    source_id=task["source_id"],
+                                    submitter=task["submission_info"]["submitter"],
+                                    waiting_since=task["curation_start_date"],
+                                    parsing_summary=task["parsing_summary"]))
+            else:
+                [print(task) for task in json_res["curation_tasks"]]
+
+    def _complete_curation_task(self, source_id, verdict, reason, prompt=True, raw=False):
+        """Complete a curation task by accepting or rejecting it.
+        You must have curation permissions on the selected submission.
+
+        Note:
+            This method is intended to be used through ``accept_curation_submission()``
+            and ``reject_curation_submission()``, as those methods are more explicit,
+            although the internal logic is almost identical.
+
+        Arguments:
+            source_id (str): The ``source_id`` (``source_name`` + version information) of the
+                    curation task. You can acquire this through
+                    ``get_available_curation_tasks()``.
+            verdict (str): "accept" or "reject" to accept or reject the submission.
+            reason (str): The reason for accepting/rejecting this submission.
+                    **Default:** ``None``, to use a generic reason.
+            prompt (bool): When ``True``, will prompt the user to confirm action selection,
+                    with a summary of the selected task.
+                    When ``False``, will not require confirmation.
+                    **Default:** ``True``.
+            raw (bool): When ``False``, will print the result.
+                    When ``True``, will return a dictionary of the full result.
+                    For direct human consumption, ``False`` is recommended.
+                    **Default:** ``False``
+
+        Returns:
+            if raw is ``True``, *dict*: The full task results.
+        """
+        # Validate verdict
+        verdict = verdict.strip().lower()
+        if verdict not in self.default_curation_reasons.keys():
+            return {
+                "success": False,
+                "error": ("Verdict '{}' is invalid. Valid verdicts are: {}"
+                          .format(verdict, self.default_curation_reasons.keys()))
+            }
+
+        # Prompt user to confirm, if requested
+        if prompt:
+            print("Are you sure you want to {} the following submission?".format(verdict))
+            self.get_curation_task(source_id, summary=True)
+            prompt_response = input("\nConfirm {}ing submission [yes/no]: ".format(verdict))
+            if prompt_response.strip().lower() != "yes":
+                return {
+                    "success": False,
+                    "error": "Curation cancelled"
+                }
+            elif not reason:
+                reason = input("\nWhat is the reason for {}ing this submission? "
+                               .format(verdict)).strip()
+
+        if not reason:
+            reason = self.default_curation_reasons[verdict]
+
+        # Submit verdict
+        command = {
+            "action": verdict,
+            "reason": reason
+        }
+        headers = {}
+        self.__authorizer.set_authorization_header(headers)
+        res = requests.post(self.service_loc+self.curation_route+source_id, headers=headers,
+                            json=command)
+        # Handle first 401/403 by regenerating auth headers
+        if res.status_code == 401 or res.status_code == 403:
+            self.__authorizer.handle_missing_authorization()
+            self.__authorizer.set_authorization_header(headers)
+            res = requests.get(self.service_loc+self.curation_route+source_id, headers=headers,
+                               json=command)
+
+        try:
+            json_res = res.json()
+        except Exception as e:
+            if raw:
+                return {
+                    "success": False,
+                    "error": "{}: {}".format(e, res.content),
+                    "status_code": res.status_code
+                }
+            elif res.status_code < 300:
+                print("Error decoding {} response: {}".format(res.status_code, res.content))
+            else:
+                print("Error {}. MDF Connect may be experiencing technical"
+                      " difficulties.".format(res.status_code))
+        else:
+            if raw:
+                json_res["status_code"] = res.status_code
+                return json_res
+            elif res.status_code >= 300:
+                print("Error {} fetching curation task: {}"
+                      .format(res.status_code, json_res.get("error", json_res)))
+            else:
+                print("\n", json_res["message"], sep="")
+
+    def accept_curation_submission(self, source_id, reason=None, prompt=True, raw=False):
+        """Complete a curation task by accepting the submission.
+        You must have curation permissions on the selected submission.
+
+        Arguments:
+            source_id (str): The ``source_id`` (``source_name`` + version information) of the
+                    curation task. You can acquire this through
+                    ``get_available_curation_tasks()``.
+            reason (str): The reason for accepting this submission.
+                    **Default:** ``None``, to use a generic acceptance reason.
+            prompt (bool): When ``True``, will prompt the user to confirm action selection,
+                    with a summary of the selected task.
+                    When ``False``, will not require confirmation.
+                    **Default:** ``True``.
+            raw (bool): When ``False``, will print the result.
+                    When ``True``, will return a dictionary of the full result.
+                    For direct human consumption, ``False`` is recommended.
+                    **Default:** ``False``
+
+        Returns:
+            if raw is ``True``, *dict*: The full task results.
+        """
+        return self._complete_curation_task(source_id, "accept", reason, prompt, raw)
+
+    def reject_curation_submission(self, source_id, reason=None, prompt=True, raw=False):
+        """Complete a curation task by rejecting the submission.
+        You must have curation permissions on the selected submission.
+
+        Arguments:
+            source_id (str): The ``source_id`` (``source_name`` + version information) of the
+                    curation task. You can acquire this through
+                    ``get_available_curation_tasks()``.
+            reason (str): The reason for rejecting this submission.
+                    **Default:** ``None``, to use a generic rejection reason.
+            prompt (bool): When ``True``, will prompt the user to confirm action selection,
+                    with a summary of the selected task.
+                    When ``False``, will not require confirmation.
+                    **Default:** ``True``.
+            raw (bool): When ``False``, will print the result.
+                    When ``True``, will return a dictionary of the full result.
+                    For direct human consumption, ``False`` is recommended.
+                    **Default:** ``False``
+
+        Returns:
+            if raw is ``True``, *dict*: The full task results.
+        """
+        return self._complete_curation_task(source_id, "reject", reason, prompt, raw)
