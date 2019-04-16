@@ -13,12 +13,12 @@ CONNECT_STATUS_ROUTE = "/status/"
 CONNECT_ALL_STATUS_ROUTE = "/submissions/"
 CONNECT_CURATION_ROUTE = "/curate/"
 CONNECT_ALL_CURATION_ROUTE = "/curation/"
-CURATION_SUMMARY_STR = ("Submission: {source_id} by {submitter}\nWaiting since {waiting_since}"
-                        "\n{parsing_summary}")
+CURATION_SUMMARY_STR = ("{source_id} by {submitter}\nWaiting since {waiting_since}"
+                        "\n{parsing_summary}\n")
 DEFAULT_CURATION_REASONS = {
-    "accept": "This submission has been accepted because it meets the appropriate standards.",
+    "accept": "This submission has been accepted because it meets the appropriate standards",
     "reject": ("This submission has been rejected because it does not meet the "
-               "appropriate standards.")
+               "appropriate standards")
 }
 
 
@@ -884,7 +884,7 @@ class MDFConnectClient:
                     curation task. You can acquire this through
                     ``get_available_curation_tasks()``.
             summary (bool): When ``False``, will print the entire curation task,
-                    including dataset entry and sample records.
+                    including the verbose dataset entry and sample records.
                     When ``True``, will only print a summary of the task.
                     **Default:** ``False``
             raw (bool): When ``False``, will print the curation task.
@@ -934,7 +934,11 @@ class MDFConnectClient:
                                 waiting_since=task["curation_start_date"],
                                 parsing_summary=task["parsing_summary"]))
             else:
-                print(json_res["curation_task"])
+                task = json_res["curation_task"]
+                # TODO: Are the dataset and record entries human-useful?
+                # task.pop("dataset")
+                # task.pop("sample_records")
+                print(json.dumps(task, indent=4, sort_keys=True))
 
     def get_available_curation_tasks(self, summary=True, raw=False, _admin_code=None):
         """Get all curation tasks available to you.
@@ -994,6 +998,7 @@ class MDFConnectClient:
                 print("Error {} fetching curation tasks: {}"
                       .format(res.status_code, json_res.get("error", json_res)))
             elif summary:
+                print()  # Newline for spacing
                 for task in json_res["curation_tasks"]:
                     print(self.curation_summary_template.format(
                                     source_id=task["source_id"],
@@ -1001,7 +1006,13 @@ class MDFConnectClient:
                                     waiting_since=task["curation_start_date"],
                                     parsing_summary=task["parsing_summary"]))
             else:
-                [print(task) for task in json_res["curation_tasks"]]
+                for task in json_res["curation_tasks"]:
+                    # TODO: Are the dataset and record entries human-useful?
+                    # task.pop("dataset")
+                    # task.pop("sample_records")
+                    print("========== {} ==========".format(task["source_id"]))
+                    print(json.dumps(task, indent=4, sort_keys=True))
+                    print("\n")  # Double newline
 
     def _complete_curation_task(self, source_id, verdict, reason, prompt=True, raw=False):
         """Complete a curation task by accepting or rejecting it.
@@ -1039,6 +1050,20 @@ class MDFConnectClient:
                 "error": ("Verdict '{}' is invalid. Valid verdicts are: {}"
                           .format(verdict, self.default_curation_reasons.keys()))
             }
+        # Check that curation task exists
+        task_json = self.get_curation_task(source_id, raw=True)
+        if task_json["status_code"] == 404:
+            return {
+                "success": False,
+                "error": task_json.get("error", "Curation task not found")
+            }
+        elif task_json["status_code"] >= 300:
+            default_error = "MDF Connect may be experiencing technical difficulties."
+            return {
+                "success": False,
+                "error": ("Error {} fetching curation task: {}"
+                          .format(task_json["status_code"], task_json.get("error", default_error)))
+            }
 
         # Prompt user to confirm, if requested
         if prompt:
@@ -1051,7 +1076,7 @@ class MDFConnectClient:
                     "error": "Curation cancelled"
                 }
             elif not reason:
-                reason = input("\nWhat is the reason for {}ing this submission? "
+                reason = input("\nWhat is the reason for {}ing this submission?\n\t"
                                .format(verdict)).strip()
 
         if not reason:
