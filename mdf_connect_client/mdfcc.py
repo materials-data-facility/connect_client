@@ -79,9 +79,13 @@ class MDFConnectClient:
             raise ValueError("Unable to authenticate")
 
     def logout(self):
-        """Log out by removing cached tokens and discarding the client's authorizer"""
+        """Log out by removing cached tokens and discarding the client's authorizer.
+        Also clear the current submission, as it cannot be interacted with.
+        """
+        self.reset_submission()
         self.__authorizer = None
         mdf_toolbox.logout()
+        return "Logged out. You must create a new MDF Connect Client to log back in."
 
     def create_dc_block(self, title, authors,
                         affiliations=None, publisher=None, publication_year=None,
@@ -997,6 +1001,9 @@ class MDFConnectClient:
             elif res.status_code >= 300:
                 print("Error {} fetching curation tasks: {}"
                       .format(res.status_code, json_res.get("error", json_res)))
+            # Check that results were returned
+            elif len(json_res["curation_tasks"]) < 1:
+                print("You have no open curation tasks.")
             elif summary:
                 print()  # Newline for spacing
                 for task in json_res["curation_tasks"]:
