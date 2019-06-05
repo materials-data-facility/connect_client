@@ -39,7 +39,8 @@ class MDFConnectClient:
             test (bool): When ``False``, the dataset will be processed normally.
                     When ``True``, the dataset will be processed, but submitted to
                     test/sandbox/temporary resources instead of live resources.
-                    This includes the ``mdf-test`` Search index and MDF Test Publish collection.
+                    This includes the ``mdf-test`` Search index and test DOIs minted
+                    with MDF Publish.
                     **Default:** ``False``
             service_instance (str): The instance of the MDF Connect API to use.
                     This value should not normally be changed from the default.
@@ -479,17 +480,18 @@ class MDFConnectClient:
             service (str): The integrated service to submit your dataset to.
                     Connected services include:
 
-                    * ``globus_publish`` (publication with DOI minting)
+                    * ``mdf_publish`` (publication with DOI minting)
                     * ``citrine`` (industry-partnered machine-learning specialists)
                     * ``mrr`` (NIST Materials Resource Registry)
 
             parameters (dict): Optional, service-specific parameters.
 
-                    * For ``globus_publish``:
+                    * For ``mdf_publish``:
+                        * **publication_location** (*str*) - The Globus Endpoint
+                            and path on which to save the published files.
+                            It is recommended to not specify this parameter,
+                            which causes the dataset to be published on MDF resources.
 
-                        * **collection_id** (*int*) - The collection for submission.
-                            Overwrites ``collection_name``.
-                        * **collection_name** (*str*) - The collection for submission.
                     * For ``citrine``:
                         * **public** (*bool*) - When ``True``, will make data public.
                           Otherwise, it is inaccessible.
@@ -543,7 +545,8 @@ class MDFConnectClient:
             test (bool): When ``False``, the dataset will be processed normally.
                     When ``True``, the dataset will be processed, but submitted to
                     test/sandbox/temporary resources instead of live resources.
-                    This includes the ``mdf-test`` Search index and MDF Test Publish collection.
+                    This includes the ``mdf-test`` Search index and test DOIs minted
+                    with MDF Publish.
                     **Default:** ``False``
         """
         self.test = test
