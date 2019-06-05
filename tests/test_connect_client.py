@@ -1,4 +1,5 @@
 from mdf_toolbox import insensitive_comparison
+import pytest
 
 from mdf_connect_client import MDFConnectClient
 from mdf_connect_client.mdfcc import CONNECT_SERVICE_LOC, CONNECT_DEV_LOC
@@ -11,6 +12,9 @@ def test_service_loc():
     assert mdf2.service_loc == CONNECT_SERVICE_LOC
     mdf3 = MDFConnectClient(service_instance="dev")
     assert mdf3.service_loc == CONNECT_DEV_LOC
+
+    with pytest.raises(ValueError):
+        MDFConnectClient(service_instance="foobar")
 
 
 def test_create_dc_block():

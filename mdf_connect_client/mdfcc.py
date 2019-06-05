@@ -53,12 +53,14 @@ class MDFConnectClient:
         """
         self.test = test
         self.update = False
-        if service_instance == "prod" or service_instance is None:
+        if (service_instance == "prod" or service_instance == "production"
+                or service_instance is None):
             self.service_loc = CONNECT_SERVICE_LOC
-        elif service_instance == "dev":
+        elif service_instance == "dev" or service_instance == "development":
             self.service_loc = CONNECT_DEV_LOC
         else:
-            self.service_loc = service_instance
+            raise ValueError("'service_instance' must be 'prod' or 'dev', not '{}'"
+                             .format(service_instance))
         self.convert_route = CONNECT_CONVERT_ROUTE
         self.status_route = CONNECT_STATUS_ROUTE
         self.all_status_route = CONNECT_ALL_STATUS_ROUTE
