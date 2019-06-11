@@ -641,11 +641,11 @@ class MDFConnectClient:
             "service_location": self.service_loc
         }
 
-    def submit_dataset(self, resubmit=False, submission=None, reset=False):
+    def submit_dataset(self, update=False, submission=None, reset=False):
         """Submit your dataset to MDF Connect for processing.
 
         Arguments:
-            resubmit (bool): If you wish to submit this dataset again, set this to ``True``.
+            update (bool): If you wish to submit this dataset again, set this to ``True``.
                     If this is the first submission, leave this ``False``.
                     **Default:** ``False``
             submission (dict): If you have assembled the Connect metadata yourself,
@@ -671,15 +671,15 @@ class MDFConnectClient:
         """
         # If submission not supplied, get from stored values
         if not submission:
-            # Ensure resubmit set if known resubmission
-            if not resubmit and self.source_id:
+            # Ensure update set if known resubmission
+            if not update and self.source_id:
                 return {
                     'source_id': None,
                     'success': False,
                     'error': ("You have already submitted this dataset."
-                              " Set resubmit=True to resubmit it")
+                              " Set update=True to resubmit it")
                 }
-            self.update = resubmit
+            self.update = update
             submission = self.get_submission()
 
         # Check for required data
