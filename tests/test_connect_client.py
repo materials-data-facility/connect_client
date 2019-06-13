@@ -1,3 +1,6 @@
+from mdf_toolbox import insensitive_comparison
+import pytest
+
 from mdf_connect_client import MDFConnectClient
 from mdf_connect_client.mdfcc import CONNECT_SERVICE_LOC, CONNECT_DEV_LOC
 
@@ -9,6 +12,9 @@ def test_service_loc():
     assert mdf2.service_loc == CONNECT_SERVICE_LOC
     mdf3 = MDFConnectClient(service_instance="dev")
     assert mdf3.service_loc == CONNECT_DEV_LOC
+
+    with pytest.raises(ValueError):
+        MDFConnectClient(service_instance="foobar")
 
 
 def test_create_dc_block():
@@ -191,16 +197,16 @@ def test_source_name():
     assert mdf.mdf.get("source_name", None) is None
 
 
-def test_repositories():
+def test_organizations():
     mdf = MDFConnectClient()
-    mdf.add_repositories("ANL")
-    mdf.add_repositories(["ORNL", "NREL"])
-    assert mdf.mdf["repositories"] == ["ANL", "ORNL", "NREL"]
+    mdf.add_organization("ANL")
+    mdf.add_organization(["ORNL", "NREL"])
+    assert mdf.mdf["organizations"] == ["ANL", "ORNL", "NREL"]
 
-    mdf.clear_repositories()
-    assert mdf.mdf.get("repositories", None) is None
-    mdf.add_repositories("APS")
-    assert mdf.mdf["repositories"] == ["APS"]
+    mdf.clear_organizations()
+    assert mdf.mdf.get("organizations", None) is None
+    mdf.add_organization("APS")
+    assert mdf.mdf["organizations"] == ["APS"]
 
 
 def test_create_mrr_block():
@@ -248,19 +254,34 @@ def test_set_project_block():
     res = mdf.set_project_block("proj2", {"foo": float("nan")})
     assert "Out of range float values are not JSON compliant" in res
     assert mdf.projects == {"proj1": {"foo": "bar"}}
+    # Pop project
+    mdf.set_project_block("proj1", None)
+    assert mdf.projects == {}
 
 
 def test_data():
     mdf = MDFConnectClient()
-    mdf.add_data("https://example.com/path/data.zip")
-    assert mdf.data == ["https://example.com/path/data.zip"]
-    mdf.add_data(["https://www.globus.org/app/transfer?123",
-                  "globus://endpoint123/path/data.out"])
-    assert mdf.data == ["https://example.com/path/data.zip",
-                        "https://www.globus.org/app/transfer?123",
-                        "globus://endpoint123/path/data.out"]
-    mdf.clear_data()
-    assert mdf.data == []
+    # data_sources
+    mdf.add_data_source("https://example.com/path/data.zip")
+    assert mdf.data_sources == ["https://example.com/path/data.zip"]
+    mdf.add_data_source(["https://www.globus.org/app/transfer?123",
+                         "globus://endpoint123/path/data.out"])
+    assert mdf.data_sources == ["https://example.com/path/data.zip",
+                                "https://www.globus.org/app/transfer?123",
+                                "globus://endpoint123/path/data.out"]
+    mdf.clear_data_sources()
+    assert mdf.data_sources == []
+
+    # data_destinations
+    mdf.add_data_destination("https://example.com/path/data.zip")
+    assert mdf.data_destinations == ["https://example.com/path/data.zip"]
+    mdf.add_data_destination(["https://www.globus.org/app/transfer?123",
+                              "globus://endpoint123/path/data.out"])
+    assert mdf.data_destinations == ["https://example.com/path/data.zip",
+                                     "https://www.globus.org/app/transfer?123",
+                                     "globus://endpoint123/path/data.out"]
+    mdf.clear_data_destinations()
+    assert mdf.data_destinations == []
 
 
 def test_index():
@@ -352,6 +373,25 @@ def test_services():
     assert mdf.services == {}
 
 
+def test_tags():
+    mdf = MDFConnectClient()
+    mdf.add_tag("foo")
+    assert mdf.tags == ["foo"]
+    mdf.add_tag(["bar", "baz"])
+    assert mdf.tags == ["foo", "bar", "baz"]
+    mdf.clear_tags()
+    assert mdf.tags == []
+
+
+def test_curation():
+    mdf = MDFConnectClient()
+    assert mdf.curation is False
+    mdf.set_curation(True)
+    assert mdf.curation is True
+    mdf.set_curation(False)
+    assert mdf.curation is False
+
+
 def test_set_test():
     mdf = MDFConnectClient()
     assert mdf.test is False
@@ -363,38 +403,47 @@ def test_set_test():
     assert mdf2.test is True
 
 
+def test_passthrough():
+    mdf = MDFConnectClient()
+    assert mdf.no_convert is False
+    mdf.set_passthrough(True)
+    assert mdf.no_convert is True
+    mdf.set_passthrough(False)
+    assert mdf.no_convert is False
+
+
 def test_submission():
     mdf = MDFConnectClient()
-    assert mdf.get_submission() == {
-        "dc": {},
-        "data": [],
-        "test": False
-    }
+    assert insensitive_comparison(mdf.get_submission(),
+                                  {"dc": {},
+                                   "data_sources": [],
+                                   "test": False,
+                                   "update": False})
     mdf.dc = {"a": "a"}
     mdf.mdf = {"b": "b"}
     mdf.services = {"c": "c"}
     mdf.projects = {"foo": {"bar": "baz"}}
-    assert mdf.get_submission() == {
-        "dc": {"a": "a"},
-        "mdf": {"b": "b"},
-        "projects": {"foo": {"bar": "baz"}},
-        "services": {"c": "c"},
-        "data": [],
-        "test": False
-    }
+    assert insensitive_comparison(mdf.get_submission(),
+                                  {"dc": {"a": "a"},
+                                   "mdf": {"b": "b"},
+                                   "projects": {"foo": {"bar": "baz"}},
+                                   "services": {"c": "c"},
+                                   "data_sources": [],
+                                   "test": False,
+                                   "update": False})
     mdf.reset_submission()
-    assert mdf.get_submission() == {
-        "dc": {},
-        "data": [],
-        "test": False
-    }
+    assert insensitive_comparison(mdf.get_submission(),
+                                  {"dc": {},
+                                   "data_sources": [],
+                                   "test": False,
+                                   "update": False})
     mdf.set_test(True)
     mdf.reset_submission()
-    assert mdf.get_submission() == {
-        "dc": {},
-        "data": [],
-        "test": True
-    }
+    assert insensitive_comparison(mdf.get_submission(),
+                                  {"dc": {},
+                                   "data_sources": [],
+                                   "test": True,
+                                   "update": False})
 
 
 def test_submit_dataset():
@@ -403,5 +452,10 @@ def test_submit_dataset():
 
 
 def test_check_status():
+    # TODO
+    pass
+
+
+def test_check_all_submissions():
     # TODO
     pass

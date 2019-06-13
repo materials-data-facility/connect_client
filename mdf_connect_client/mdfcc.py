@@ -8,9 +8,18 @@ import requests
 
 CONNECT_SERVICE_LOC = "https://api.materialsdatafacility.org"
 CONNECT_DEV_LOC = "https://dev-api.materialsdatafacility.org"
-CONNECT_CONVERT_ROUTE = "/convert"
+CONNECT_CONVERT_ROUTE = "/submit"
 CONNECT_STATUS_ROUTE = "/status/"
 CONNECT_ALL_STATUS_ROUTE = "/submissions/"
+CONNECT_CURATION_ROUTE = "/curate/"
+CONNECT_ALL_CURATION_ROUTE = "/curation/"
+CURATION_SUMMARY_STR = ("{source_id} by {submitter}\nWaiting since {waiting_since}"
+                        "\n{parsing_summary}\n")
+DEFAULT_CURATION_REASONS = {
+    "accept": "This submission has been accepted because it meets the appropriate standards",
+    "reject": ("This submission has been rejected because it does not meet the "
+               "appropriate standards")
+}
 
 
 class MDFConnectClient:
@@ -23,27 +32,16 @@ class MDFConnectClient:
         globus_sdk.NullAuthorizer
     ]
 
-    def __init__(self, test=False, dc=None, mdf=None, mrr=None, custom=None, projects=None,
-                 data=None, index=None, conversion_config=None, services=None,
-                 service_instance=None, authorizer=None):
+    def __init__(self, test=False, service_instance=None, authorizer=None):
         """Create an MDF Connect Client.
 
         Arguments:
             test (bool): When ``False``, the dataset will be processed normally.
                     When ``True``, the dataset will be processed, but submitted to
                     test/sandbox/temporary resources instead of live resources.
-                    This includes the ``mdf-test`` Search index and MDF Test Publish collection.
+                    This includes the ``mdf-test`` Search index and test DOIs minted
+                    with MDF Publish.
                     **Default:** ``False``
-            dc (dict): Initial value for the ``dc`` block. **Default:** ``{}``.
-            mdf (dict): Initial value for the ``mdf`` block. **Default:** ``{}``.
-            mrr (dict): Initial value for the ``mrr`` block. **Default:** ``{}``.
-            custom (dict): Initial value for the ``custom`` block. **Default:** ``{}``.
-            projects (dict): Initial value for the ``projects`` block. **Default:** ``{}``.
-            data (dict): Initial value for the ``data`` block. **Default:** ``[]``.
-            index (dict): Initial value for the ``index`` block. **Default:** ``{}``.
-            conversion_config (dict): Initial value for the ``conversion_config`` block.
-                    **Default:** ``{}``.
-            services (dict): Initial value for the ``services`` block. **Default:** ``{}``.
             service_instance (str): The instance of the MDF Connect API to use.
                     This value should not normally be changed from the default.
                     **Default:** ``None``, to use the default API instance.
@@ -54,28 +52,25 @@ class MDFConnectClient:
         Returns:
             *MDFConnectClient*: An initialized, authenticated MDF Connect Client.
         """
-        self.dc = dc or {}
-        self.mdf = mdf or {}
-        self.mrr = mrr or {}
-        self.custom = custom or {}
-        self.projects = projects or {}
-        self.data = data or []
-        self.index = index or {}
-        self.conversion_config = conversion_config or {}
-        self.services = services or {}
         self.test = test
-
-        if service_instance == "prod" or service_instance is None:
+        self.update = False
+        if (service_instance == "prod" or service_instance == "production"
+                or service_instance is None):
             self.service_loc = CONNECT_SERVICE_LOC
-        elif service_instance == "dev":
+        elif service_instance == "dev" or service_instance == "development":
             self.service_loc = CONNECT_DEV_LOC
         else:
-            self.service_loc = service_instance
+            raise ValueError("'service_instance' must be 'prod' or 'dev', not '{}'"
+                             .format(service_instance))
         self.convert_route = CONNECT_CONVERT_ROUTE
         self.status_route = CONNECT_STATUS_ROUTE
         self.all_status_route = CONNECT_ALL_STATUS_ROUTE
+        self.curation_route = CONNECT_CURATION_ROUTE
+        self.all_curation_route = CONNECT_ALL_CURATION_ROUTE
+        self.curation_summary_template = CURATION_SUMMARY_STR
+        self.default_curation_reasons = DEFAULT_CURATION_REASONS
 
-        self.source_id = None
+        self.reset_submission()
 
         if any([isinstance(authorizer, allowed) for allowed in self.__allowed_authorizers]):
             self.__authorizer = authorizer
@@ -85,6 +80,15 @@ class MDFConnectClient:
                                                    }).get("connect")
         if not self.__authorizer:
             raise ValueError("Unable to authenticate")
+
+    def logout(self):
+        """Log out by removing cached tokens and discarding the client's authorizer.
+        Also clear the current submission, as it cannot be interacted with.
+        """
+        self.reset_submission()
+        self.__authorizer = None
+        mdf_toolbox.logout()
+        return "Logged out. You must create a new MDF Connect Client to log back in."
 
     def create_dc_block(self, title, authors,
                         affiliations=None, publisher=None, publication_year=None,
@@ -181,7 +185,7 @@ class MDFConnectClient:
             family = family.strip()
             given = given.strip()
             creator = {
-                "creatorName": family + ", " + given,
+                "creatorName": "{}, {}".format(family, given),
                 "familyName": family,
                 "givenName": given
             }
@@ -286,28 +290,29 @@ class MDFConnectClient:
         """Remove a previously set source_name."""
         self.mdf.pop("source_name", None)
 
-    def add_repositories(self, repositories):
-        """Add repositories to your dataset.
+    def add_organization(self, organization):
+        """Add your dataset to an organization.
 
         Arguments:
-            repositories (str or list of str): The repository or repositories to add.
-                    If the repository is not known to MDF, it will be discarded.
-                    Additional repositories may be added automatically.
+            organization (str or list of str): The organization(s) to add.
+                    If the organization is not registered with MDF, it will be discarded.
+                    Parent organizations will be added automatically.
         """
-        if not isinstance(repositories, list):
-            repositories = [repositories]
-        if not self.mdf.get("repositories"):
-            self.mdf["repositories"] = repositories
+        if not isinstance(organization, list):
+            organization = [organization]
+        if not self.mdf.get("organizations"):
+            self.mdf["organizations"] = organization
         else:
-            self.mdf["repositories"].extend(repositories)
+            self.mdf["organizations"].extend(organization)
 
-    def clear_repositories(self):
-        """Clear all added repositories from the submission."""
-        self.mdf.pop("repositories", None)
+    def clear_organizations(self):
+        """Clear all added organizations from the submission."""
+        self.mdf.pop("organizations", None)
 
     def set_project_block(self, project, data):
         """Set the project block for your dataset.
         Intended only for use by members of an approved project.
+        To delete a project block, call this method with ``data=None``.
 
         Arguments:
             project (str): The name of the project block.
@@ -317,7 +322,10 @@ class MDFConnectClient:
             json.dumps(data, allow_nan=False)
         except Exception as e:
             return "Your project block is invalid: {}".format(repr(e))
-        self.projects[project] = data
+        if data:
+            self.projects[project] = data
+        else:
+            self.projects.pop(project, None)
 
     def create_mrr_block(self, mrr_data):
         """Create the mrr block for your dataset.
@@ -358,12 +366,12 @@ class MDFConnectClient:
         for field, desc in custom_descriptions.items():
             self.custom[field+"_desc"] = desc
 
-    def add_data(self, data_location):
-        """Add a data location to your dataset.
+    def add_data_source(self, data_source):
+        """Add a data source to your submission.
         Note that this method is cumulative, so calls do not overwrite previous ones.
 
         Arguments:
-            data_location (str or list of str): The location(s) of the data.
+            data_source (str or list of str): The location(s) of the data.
                     These should be formatted with protocol.
 
                     Examples:
@@ -372,13 +380,32 @@ class MDFConnectClient:
                         ``"globus://endpoint123/path/data.out"``
 
         """
-        if not isinstance(data_location, list):
-            data_location = [data_location]
-        self.data.extend(data_location)
+        if not isinstance(data_source, list):
+            data_source = [data_source]
+        self.data_sources.extend(data_source)
 
-    def clear_data(self):
-        """Clear all data added so far to your dataset."""
-        self.data = []
+    def clear_data_sources(self):
+        """Clear all data sources added so far to your dataset."""
+        self.data_sources = []
+
+    def add_data_destination(self, data_destination):
+        """Add a data destination to your submission.
+        Note that this method is cumulative, so calls do not overwrite previous ones.
+
+        Arguments:
+            data_destination (str or list of str): The destination for the data.
+                    Destinations must be Globus Endpoints, and formatted with protocol.
+
+                    Example:
+                        ``"globus://endpoint123/path/data.out"``
+        """
+        if not isinstance(data_destination, list):
+            data_destination = [data_destination]
+        self.data_destinations.extend(data_destination)
+
+    def clear_data_destinations(self):
+        """Clear all data destinations added so far to your dataset."""
+        self.data_destinations = []
 
     def add_index(self, data_type, mapping, delimiter=None, na_values=None):
         """Add indexing instructions for your dataset.
@@ -453,17 +480,18 @@ class MDFConnectClient:
             service (str): The integrated service to submit your dataset to.
                     Connected services include:
 
-                    * ``globus_publish`` (publication with DOI minting)
+                    * ``mdf_publish`` (publication with DOI minting)
                     * ``citrine`` (industry-partnered machine-learning specialists)
                     * ``mrr`` (NIST Materials Resource Registry)
 
             parameters (dict): Optional, service-specific parameters.
 
-                    * For ``globus_publish``:
+                    * For ``mdf_publish``:
+                        * **publication_location** (*str*) - The Globus Endpoint
+                            and path on which to save the published files.
+                            It is recommended to not specify this parameter,
+                            which causes the dataset to be published on MDF resources.
 
-                        * **collection_id** (*int*) - The collection for submission.
-                            Overwrites ``collection_name``.
-                        * **collection_name** (*str*) - The collection for submission.
                     * For ``citrine``:
                         * **public** (*bool*) - When ``True``, will make data public.
                           Otherwise, it is inaccessible.
@@ -476,6 +504,40 @@ class MDFConnectClient:
         """Clear all services added so far."""
         self.services = {}
 
+    def add_tag(self, tag):
+        """Add a tag or keyword to your dataset.
+        Note that this method is cumulative, so calls do not overwrite previous ones.
+
+        Note:
+            Setting tags here is equivalent to setting tags in ``create_dc_block(subjects=...)``.
+            This method exists only for convenience.
+
+        Arguments:
+            tag (str or list of str): The tag(s) to add.
+        """
+        if not isinstance(tag, list):
+            tag = [tag]
+        self.tags.extend(tag)
+
+    def clear_tags(self):
+        """Clear all tags added so far to your dataset."""
+        self.tags = []
+
+    def set_curation(self, curation):
+        """Set the curation flag for this submission.
+
+        Note:
+            Normally, this flag is set automatically by an organization, and is not set
+            manually by the dataset submitter.
+
+        Arguments:
+            curation (bool): When ``False``, the dataset will be processed normally.
+                    When ``True``, the dataset must be approved in curation
+                    before it will be ingested to MDF Search or any other service.
+                    **Default:** ``False``
+        """
+        self.curation = curation
+
     def set_test(self, test):
         """Set the test flag for this dataset.
 
@@ -483,10 +545,27 @@ class MDFConnectClient:
             test (bool): When ``False``, the dataset will be processed normally.
                     When ``True``, the dataset will be processed, but submitted to
                     test/sandbox/temporary resources instead of live resources.
-                    This includes the ``mdf-test`` Search index and MDF Test Publish collection.
+                    This includes the ``mdf-test`` Search index and test DOIs minted
+                    with MDF Publish.
                     **Default:** ``False``
         """
         self.test = test
+
+    def set_passthrough(self, passthrough):
+        """Set the dataset pass-through flag for your submission.
+
+        Caution:
+            This flag will cause your dataset to not be parsed by MDF Connect, so only
+            high-level dataset metadata will be available in MDF Search. *This flag is only
+            intended for oversize datasets that cannot be parsed.* If your dataset is not
+            oversize, do not set this flag.
+
+        Arguments:
+            passthrough (bool): When ``False``, the dataset will be processed normally.
+                    When ``True``, the files in the dataset will not be parsed.
+                    **Default:** ``False``
+        """
+        self.no_convert = passthrough
 
     def get_submission(self):
         """Fetch the current state of your submission.
@@ -496,8 +575,9 @@ class MDFConnectClient:
         """
         submission = {
             "dc": self.dc,
-            "data": self.data,
-            "test": self.test
+            "data_sources": self.data_sources,
+            "test": self.test,
+            "update": self.update
         }
         if self.mdf:
             submission["mdf"] = self.mdf
@@ -507,17 +587,28 @@ class MDFConnectClient:
             submission["custom"] = self.custom
         if self.projects:
             submission["projects"] = self.projects
+        if self.data_destinations:
+            submission["data_destinations"] = self.data_destinations
         if self.index:
             submission["index"] = self.index
         if self.conversion_config:
             submission["conversion_config"] = self.conversion_config
         if self.services:
             submission["services"] = self.services
+        if self.tags:
+            submission["tags"] = self.tags
+        if self.curation:
+            submission["curation"] = self.curation
+        if self.no_convert:
+            submission["no_convert"] = self.no_convert
         return submission
 
     def reset_submission(self):
-        """Completely clear all metadata from your submission.
-        **This action cannot be undone.**
+        """Reset and clear metadata from your submission.
+
+        Warning:
+            **This action cannot be undone.**
+
         The last submission's source_id will also be cleared. If you want to use ``check_status``,
         you will be required to input the ``source_id`` manually.
 
@@ -529,11 +620,20 @@ class MDFConnectClient:
         self.dc = {}
         self.mdf = {}
         self.mrr = {}
-        self.custom = {}
+
         self.projects = {}
-        self.clear_data()
+
+        self.set_custom_block({})
+        self.set_conversion_config({})
+        self.set_curation(False)
+        self.set_passthrough(False)
+
+        self.clear_data_sources()
+        self.clear_data_destinations()
         self.clear_index()
         self.clear_services()
+        self.clear_tags()
+
         self.source_id = None
 
         return {
@@ -541,11 +641,11 @@ class MDFConnectClient:
             "service_location": self.service_loc
         }
 
-    def submit_dataset(self, resubmit=False, submission=None, reset=False):
+    def submit_dataset(self, update=False, submission=None, reset=False):
         """Submit your dataset to MDF Connect for processing.
 
         Arguments:
-            resubmit (bool): If you wish to submit this dataset again, set this to ``True``.
+            update (bool): If you wish to submit this dataset again, set this to ``True``.
                     If this is the first submission, leave this ``False``.
                     **Default:** ``False``
             submission (dict): If you have assembled the Connect metadata yourself,
@@ -569,27 +669,21 @@ class MDFConnectClient:
                     your submission of the dataset.
                 * **error** (*string*) - Error message, if applicable.
         """
-        # Ensure resubmit matches reality
-        if not resubmit and self.source_id:
-            return {
-                'source_id': None,
-                'success': False,
-                'error': ("You have already submitted this dataset."
-                          " Set resubmit=True to resubmit it")
-            }
-        elif resubmit and not self.source_id:
-            return {
-                'source_id': None,
-                'success': False,
-                'error': ("You have not already submitted this dataset,"
-                          " so it cannot be resubmitted.")
-            }
-
+        # If submission not supplied, get from stored values
         if not submission:
+            # Ensure update set if known resubmission
+            if not update and self.source_id:
+                return {
+                    'source_id': None,
+                    'success': False,
+                    'error': ("You have already submitted this dataset."
+                              " Set update=True to resubmit it")
+                }
+            self.update = update
             submission = self.get_submission()
 
         # Check for required data
-        if not submission["dc"] or not submission["data"]:
+        if not submission["dc"] or not submission["data_sources"]:
             return {
                 'source_id': None,
                 'success': False,
@@ -789,3 +883,301 @@ class MDFConnectClient:
                             print("{}: {} - {}".format(sub["source_id"],
                                                        ("Active" if sub["active"] else "Inactive"),
                                                        status_word))
+
+    def get_curation_task(self, source_id, summary=False, raw=False):
+        """Get the content of a curation task.
+        You must have curation permissions on the selected submission.
+
+        Arguments:
+            source_id (str): The ``source_id`` (``source_name`` + version information) of the
+                    curation task. You can acquire this through
+                    ``get_available_curation_tasks()``.
+            summary (bool): When ``False``, will print the entire curation task,
+                    including the verbose dataset entry and sample records.
+                    When ``True``, will only print a summary of the task.
+                    **Default:** ``False``
+            raw (bool): When ``False``, will print the curation task.
+                    When ``True``, will return a dictionary of the full result.
+                    Overrides the value of ``summary``.
+                    For direct human consumption, ``False`` is recommended.
+                    **Default:** ``False``
+
+        Returns:
+            if raw is ``True``, *dict*: The full task results.
+        """
+        headers = {}
+        self.__authorizer.set_authorization_header(headers)
+        res = requests.get(self.service_loc+self.curation_route+source_id, headers=headers)
+        # Handle first 401/403 by regenerating auth headers
+        if res.status_code == 401 or res.status_code == 403:
+            self.__authorizer.handle_missing_authorization()
+            self.__authorizer.set_authorization_header(headers)
+            res = requests.get(self.service_loc+self.curation_route+source_id, headers=headers)
+
+        try:
+            json_res = res.json()
+        except Exception as e:
+            if raw:
+                return {
+                    "success": False,
+                    "error": "{}: {}".format(e, res.content),
+                    "status_code": res.status_code
+                }
+            elif res.status_code < 300:
+                print("Error decoding {} response: {}".format(res.status_code, res.content))
+            else:
+                print("Error {}. MDF Connect may be experiencing technical"
+                      " difficulties.".format(res.status_code))
+        else:
+            if raw:
+                json_res["status_code"] = res.status_code
+                return json_res
+            elif res.status_code >= 300:
+                print("Error {} fetching curation task: {}"
+                      .format(res.status_code, json_res.get("error", json_res)))
+            elif summary:
+                task = json_res["curation_task"]
+                print(self.curation_summary_template.format(
+                                source_id=task["source_id"],
+                                submitter=task["submission_info"]["submitter"],
+                                waiting_since=task["curation_start_date"],
+                                parsing_summary=task["parsing_summary"]))
+            else:
+                task = json_res["curation_task"]
+                # TODO: Are the dataset and record entries human-useful?
+                # task.pop("dataset")
+                # task.pop("sample_records")
+                print(json.dumps(task, indent=4, sort_keys=True))
+
+    def get_available_curation_tasks(self, summary=True, raw=False, _admin_code=None):
+        """Get all curation tasks available to you.
+
+        Arguments:
+            summary (bool): When ``False``, will print the entire curation task,
+                    including dataset entry and sample records.
+                    When ``True``, will only print a summary of the task.
+                    Using the summary is recommended to find specific tasks to
+                    get full task information on using ``get_curation_task()``.
+                    **Default:** ``True``
+            raw (bool): When ``False``, will print out summaries of your available
+                    curation tasks. When ``True``, will return a dictionary containing
+                    the results.
+                    For direct human consumption, ``False`` is recommended.
+                    **Default:** ``False``
+            _admin_code (str): *For MDF Connect administrators only,* a special function code.
+                    Valid codes:
+
+                        * ``all``: All waiting curation tasks.
+
+                    Only MDF Connect administrators are allowed to use these codes.
+                    **Default:** ``None``, the only valid value for non-admins.
+
+        Returns:
+            if raw is ``True``, *dict*: The full task results.
+        """
+        headers = {}
+        self.__authorizer.set_authorization_header(headers)
+        res = requests.get(self.service_loc+self.all_curation_route+(_admin_code or ""),
+                           headers=headers)
+        # Handle first 401/403 by regenerating auth headers
+        if res.status_code == 401 or res.status_code == 403:
+            self.__authorizer.handle_missing_authorization()
+            self.__authorizer.set_authorization_header(headers)
+            res = requests.get(self.service_loc+self.all_curation_route+(_admin_code or ""),
+                               headers=headers)
+        try:
+            json_res = res.json()
+        except Exception as e:
+            if raw:
+                return {
+                    "success": False,
+                    "error": "{}: {}".format(e, res.content),
+                    "status_code": res.status_code
+                }
+            elif res.status_code < 300:
+                print("Error decoding {} response: {}".format(res.status_code, res.content))
+            else:
+                print("Error {}. MDF Connect may be experiencing technical"
+                      " difficulties.".format(res.status_code))
+        else:
+            if raw:
+                json_res["status_code"] = res.status_code
+                return json_res
+            elif res.status_code >= 300:
+                print("Error {} fetching curation tasks: {}"
+                      .format(res.status_code, json_res.get("error", json_res)))
+            # Check that results were returned
+            elif len(json_res["curation_tasks"]) < 1:
+                print("You have no open curation tasks.")
+            elif summary:
+                print()  # Newline for spacing
+                for task in json_res["curation_tasks"]:
+                    print(self.curation_summary_template.format(
+                                    source_id=task["source_id"],
+                                    submitter=task["submission_info"]["submitter"],
+                                    waiting_since=task["curation_start_date"],
+                                    parsing_summary=task["parsing_summary"]))
+            else:
+                for task in json_res["curation_tasks"]:
+                    # TODO: Are the dataset and record entries human-useful?
+                    # task.pop("dataset")
+                    # task.pop("sample_records")
+                    print("========== {} ==========".format(task["source_id"]))
+                    print(json.dumps(task, indent=4, sort_keys=True))
+                    print("\n")  # Double newline
+
+    def _complete_curation_task(self, source_id, verdict, reason, prompt=True, raw=False):
+        """Complete a curation task by accepting or rejecting it.
+        You must have curation permissions on the selected submission.
+
+        Note:
+            This method is intended to be used through ``accept_curation_submission()``
+            and ``reject_curation_submission()``, as those methods are more explicit,
+            although the internal logic is almost identical.
+
+        Arguments:
+            source_id (str): The ``source_id`` (``source_name`` + version information) of the
+                    curation task. You can acquire this through
+                    ``get_available_curation_tasks()``.
+            verdict (str): "accept" or "reject" to accept or reject the submission.
+            reason (str): The reason for accepting/rejecting this submission.
+                    **Default:** ``None``, to use a generic reason.
+            prompt (bool): When ``True``, will prompt the user to confirm action selection,
+                    with a summary of the selected task.
+                    When ``False``, will not require confirmation.
+                    **Default:** ``True``.
+            raw (bool): When ``False``, will print the result.
+                    When ``True``, will return a dictionary of the full result.
+                    For direct human consumption, ``False`` is recommended.
+                    **Default:** ``False``
+
+        Returns:
+            if raw is ``True``, *dict*: The full task results.
+        """
+        # Validate verdict
+        verdict = verdict.strip().lower()
+        if verdict not in self.default_curation_reasons.keys():
+            return {
+                "success": False,
+                "error": ("Verdict '{}' is invalid. Valid verdicts are: {}"
+                          .format(verdict, self.default_curation_reasons.keys()))
+            }
+        # Check that curation task exists
+        task_json = self.get_curation_task(source_id, raw=True)
+        if task_json["status_code"] == 404:
+            return {
+                "success": False,
+                "error": task_json.get("error", "Curation task not found")
+            }
+        elif task_json["status_code"] >= 300:
+            default_error = "MDF Connect may be experiencing technical difficulties."
+            return {
+                "success": False,
+                "error": ("Error {} fetching curation task: {}"
+                          .format(task_json["status_code"], task_json.get("error", default_error)))
+            }
+
+        # Prompt user to confirm, if requested
+        if prompt:
+            print("Are you sure you want to {} the following submission?".format(verdict))
+            self.get_curation_task(source_id, summary=True)
+            prompt_response = input("\nConfirm {}ing submission [yes/no]: ".format(verdict))
+            if prompt_response.strip().lower() != "yes":
+                return {
+                    "success": False,
+                    "error": "Curation cancelled"
+                }
+            elif not reason:
+                reason = input("\nWhat is the reason for {}ing this submission?\n\t"
+                               .format(verdict)).strip()
+
+        if not reason:
+            reason = self.default_curation_reasons[verdict]
+
+        # Submit verdict
+        command = {
+            "action": verdict,
+            "reason": reason
+        }
+        headers = {}
+        self.__authorizer.set_authorization_header(headers)
+        res = requests.post(self.service_loc+self.curation_route+source_id, headers=headers,
+                            json=command)
+        # Handle first 401/403 by regenerating auth headers
+        if res.status_code == 401 or res.status_code == 403:
+            self.__authorizer.handle_missing_authorization()
+            self.__authorizer.set_authorization_header(headers)
+            res = requests.get(self.service_loc+self.curation_route+source_id, headers=headers,
+                               json=command)
+
+        try:
+            json_res = res.json()
+        except Exception as e:
+            if raw:
+                return {
+                    "success": False,
+                    "error": "{}: {}".format(e, res.content),
+                    "status_code": res.status_code
+                }
+            elif res.status_code < 300:
+                print("Error decoding {} response: {}".format(res.status_code, res.content))
+            else:
+                print("Error {}. MDF Connect may be experiencing technical"
+                      " difficulties.".format(res.status_code))
+        else:
+            if raw:
+                json_res["status_code"] = res.status_code
+                return json_res
+            elif res.status_code >= 300:
+                print("Error {} fetching curation task: {}"
+                      .format(res.status_code, json_res.get("error", json_res)))
+            else:
+                print("\n", json_res["message"], sep="")
+
+    def accept_curation_submission(self, source_id, reason=None, prompt=True, raw=False):
+        """Complete a curation task by accepting the submission.
+        You must have curation permissions on the selected submission.
+
+        Arguments:
+            source_id (str): The ``source_id`` (``source_name`` + version information) of the
+                    curation task. You can acquire this through
+                    ``get_available_curation_tasks()``.
+            reason (str): The reason for accepting this submission.
+                    **Default:** ``None``, to use a generic acceptance reason.
+            prompt (bool): When ``True``, will prompt the user to confirm action selection,
+                    with a summary of the selected task.
+                    When ``False``, will not require confirmation.
+                    **Default:** ``True``.
+            raw (bool): When ``False``, will print the result.
+                    When ``True``, will return a dictionary of the full result.
+                    For direct human consumption, ``False`` is recommended.
+                    **Default:** ``False``
+
+        Returns:
+            if raw is ``True``, *dict*: The full task results.
+        """
+        return self._complete_curation_task(source_id, "accept", reason, prompt, raw)
+
+    def reject_curation_submission(self, source_id, reason=None, prompt=True, raw=False):
+        """Complete a curation task by rejecting the submission.
+        You must have curation permissions on the selected submission.
+
+        Arguments:
+            source_id (str): The ``source_id`` (``source_name`` + version information) of the
+                    curation task. You can acquire this through
+                    ``get_available_curation_tasks()``.
+            reason (str): The reason for rejecting this submission.
+                    **Default:** ``None``, to use a generic rejection reason.
+            prompt (bool): When ``True``, will prompt the user to confirm action selection,
+                    with a summary of the selected task.
+                    When ``False``, will not require confirmation.
+                    **Default:** ``True``.
+            raw (bool): When ``False``, will print the result.
+                    When ``True``, will return a dictionary of the full result.
+                    For direct human consumption, ``False`` is recommended.
+                    **Default:** ``False``
+
+        Returns:
+            if raw is ``True``, *dict*: The full task results.
+        """
+        return self._complete_curation_task(source_id, "reject", reason, prompt, raw)
