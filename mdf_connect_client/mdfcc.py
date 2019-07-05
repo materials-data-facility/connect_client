@@ -740,7 +740,7 @@ class MDFConnectClient:
             "status_code": res.status_code
         }
 
-    def check_status(self, source_id=None, raw=False):
+    def check_status(self, source_id=None, short=False, raw=False):
         """Check the status of your submission.
         You may only check the status of your own submissions.
 
@@ -748,6 +748,11 @@ class MDFConnectClient:
             source_id (str): The ``source_id`` (``source_name`` + version information) of the
                     submission to check.
                     **Default:** ``self.source_id``
+            short (bool): When ``False``, will print a status summary containing
+                    all of the status steps for the dataset.
+                    When ``True``, will print a short finished/processing message,
+                    useful for checking many datasets' status at once.
+                    **Default:** ``False``
             raw (bool): When ``False``, will print a nicely-formatted status summary.
                     When ``True``, will return the full status result.
                     For direct human consumption, ``False`` is recommended.
@@ -790,9 +795,14 @@ class MDFConnectClient:
                 return json_res
             elif res.status_code >= 300:
                 print("Error {} fetching status: {}".format(res.status_code, json_res))
+            elif short:
+                print("{}: This submission is {}"
+                      .format((source_id or self.source_id),
+                              ("active." if json_res["status"]["active"] else "inactive.")))
             else:
-                print("\n", json_res["status"]["status_message"], "\nThis submission is ",
-                      ("active." if json_res["status"]["active"] else "inactive."), sep="")
+                print("\n{}\nThis submission is {}\n"
+                      .format(json_res["status"]["status_message"],
+                              ("active." if json_res["status"]["active"] else "inactive.")))
 
     def check_all_submissions(self, verbose=False, active=False, raw=False,
                               _admin_code=None):
