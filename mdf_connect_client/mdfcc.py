@@ -90,6 +90,10 @@ class MDFConnectClient:
         mdf_toolbox.logout()
         return "Logged out. You must create a new MDF Connect Client to log back in."
 
+    # ***********************************************
+    # * Mandatory inputs
+    # ***********************************************
+
     def create_dc_block(self, title, authors,
                         affiliations=None, publisher=None, publication_year=None,
                         resource_type=None, description=None, dataset_doi=None,
@@ -256,116 +260,6 @@ class MDFConnectClient:
 
         self.dc = dc
 
-    def set_acl(self, acl):
-        """Set the Access Control List for your dataset.
-
-        Arguments:
-            acl (str or list of str): The Globus UUIDs of users or groups that
-                    should be granted access to the dataset.
-                    **Default:** The special keyword ``"public"``, which makes the dataset
-                    visible to everyone.
-        """
-        if not isinstance(acl, list):
-            acl = [acl]
-        self.mdf["acl"] = acl
-
-    def clear_acl(self):
-        """Reset the ACL of your dataset to the default value ``["public"]``."""
-        self.mdf.pop("acl", None)
-
-    def set_source_name(self, source_name):
-        """Set the source name for your dataset.
-
-        Arguments:
-            source_name (str): The desired source name. Must be unique for new datasets.
-                    Please note that your source name will be cleaned when submitted to Connect,
-                    so the actual ``source_name`` may differ from this value.
-                    Additionally, the ``source_id`` (which is the ``source_name`` plus
-                    version information) is required to fetch the status of a submission.
-                    ``check_status()`` can handle this for you.
-        """
-        self.mdf["source_name"] = source_name
-
-    def clear_source_name(self):
-        """Remove a previously set source_name."""
-        self.mdf.pop("source_name", None)
-
-    def add_organization(self, organization):
-        """Add your dataset to an organization.
-
-        Arguments:
-            organization (str or list of str): The organization(s) to add.
-                    If the organization is not registered with MDF, it will be discarded.
-                    Parent organizations will be added automatically.
-        """
-        if not isinstance(organization, list):
-            organization = [organization]
-        if not self.mdf.get("organizations"):
-            self.mdf["organizations"] = organization
-        else:
-            self.mdf["organizations"].extend(organization)
-
-    def clear_organizations(self):
-        """Clear all added organizations from the submission."""
-        self.mdf.pop("organizations", None)
-
-    def set_project_block(self, project, data):
-        """Set the project block for your dataset.
-        Intended only for use by members of an approved project.
-        To delete a project block, call this method with ``data=None``.
-
-        Arguments:
-            project (str): The name of the project block.
-            data (dict): The data for the project block.
-        """
-        try:
-            json.dumps(data, allow_nan=False)
-        except Exception as e:
-            return "Your project block is invalid: {}".format(repr(e))
-        if data:
-            self.projects[project] = data
-        else:
-            self.projects.pop(project, None)
-
-    def create_mrr_block(self, mrr_data):
-        """Create the mrr block for your dataset.
-        This helper should be more helpful in the future.
-
-        Arguments:
-            mrr_data (dict): The MRR schema-compliant metadata.
-        """
-        self.mrr = mrr_data
-
-    def set_custom_block(self, custom_fields):
-        """Set the custom block for your dataset.
-
-        Arguments:
-            custom_fields (dict): Custom field-value pairs for your dataset.
-                    You may add descriptions of your fields by creating a new field
-                    called ``[field]_desc`` with the string description inside, or by
-                    calling ``set_custom_descriptions()``.
-        """
-        try:
-            json.dumps(custom_fields, allow_nan=False)
-        except Exception as e:
-            return "Error: Your custom block is invalid: {}".format(repr(e))
-        self.custom = custom_fields
-
-    def set_custom_descriptions(self, custom_descriptions):
-        """Add descriptions to your custom block.
-
-        Arguments:
-            custom_descriptions (dict): Custom field-description pairs for your dataset.
-                Field names in this argument must match field names added by
-                calling ``set_custom_block()``.
-        """
-        try:
-            json.dumps(custom_descriptions, allow_nan=False)
-        except Exception as e:
-            return "Error: Your custom descriptions are invalid: {}".format(repr(e))
-        for field, desc in custom_descriptions.items():
-            self.custom[field+"_desc"] = desc
-
     def add_data_source(self, data_source):
         """Add a data source to your submission.
         Note that this method is cumulative, so calls do not overwrite previous ones.
@@ -388,24 +282,28 @@ class MDFConnectClient:
         """Clear all data sources added so far to your dataset."""
         self.data_sources = []
 
-    def add_data_destination(self, data_destination):
-        """Add a data destination to your submission.
+    # ***********************************************
+    # * Recommended inputs
+    # ***********************************************
+
+    def add_tag(self, tag):
+        """Add a tag or keyword to your dataset.
         Note that this method is cumulative, so calls do not overwrite previous ones.
 
+        Note:
+            Setting tags here is equivalent to setting tags in ``create_dc_block(subjects=...)``.
+            This method exists only for convenience.
+
         Arguments:
-            data_destination (str or list of str): The destination for the data.
-                    Destinations must be Globus Endpoints, and formatted with protocol.
-
-                    Example:
-                        ``"globus://endpoint123/path/data.out"``
+            tag (str or list of str): The tag(s) to add.
         """
-        if not isinstance(data_destination, list):
-            data_destination = [data_destination]
-        self.data_destinations.extend(data_destination)
+        if not isinstance(tag, list):
+            tag = [tag]
+        self.tags.extend(tag)
 
-    def clear_data_destinations(self):
-        """Clear all data destinations added so far to your dataset."""
-        self.data_destinations = []
+    def clear_tags(self):
+        """Clear all tags added so far to your dataset."""
+        self.tags = []
 
     def add_index(self, data_type, mapping, delimiter=None, na_values=None):
         """Add indexing instructions for your dataset.
@@ -460,19 +358,6 @@ class MDFConnectClient:
         """Clear all indexing instructions set so far."""
         self.index = {}
 
-    def set_conversion_config(self, config):
-        """Set advanced configuration parameters for dataset conversion.
-        These parameters are intended for advanced users and/or special-case datasets.
-
-        Arguments:
-            config (dict): The conversion configuration parameters.
-        """
-        try:
-            json.dumps(config, allow_nan=False)
-        except Exception as e:
-            return "Error: Your conversion config is invalid: {}".format(repr(e))
-        self.conversion_config = config
-
     def add_service(self, service, parameters=None):
         """Add a service for data submission.
 
@@ -504,40 +389,6 @@ class MDFConnectClient:
         """Clear all services added so far."""
         self.services = {}
 
-    def add_tag(self, tag):
-        """Add a tag or keyword to your dataset.
-        Note that this method is cumulative, so calls do not overwrite previous ones.
-
-        Note:
-            Setting tags here is equivalent to setting tags in ``create_dc_block(subjects=...)``.
-            This method exists only for convenience.
-
-        Arguments:
-            tag (str or list of str): The tag(s) to add.
-        """
-        if not isinstance(tag, list):
-            tag = [tag]
-        self.tags.extend(tag)
-
-    def clear_tags(self):
-        """Clear all tags added so far to your dataset."""
-        self.tags = []
-
-    def set_curation(self, curation):
-        """Set the curation flag for this submission.
-
-        Note:
-            Normally, this flag is set automatically by an organization, and is not set
-            manually by the dataset submitter.
-
-        Arguments:
-            curation (bool): When ``False``, the dataset will be processed normally.
-                    When ``True``, the dataset must be approved in curation
-                    before it will be ingested to MDF Search or any other service.
-                    **Default:** ``False``
-        """
-        self.curation = curation
-
     def set_test(self, test):
         """Set the test flag for this dataset.
 
@@ -550,6 +401,125 @@ class MDFConnectClient:
                     **Default:** ``False``
         """
         self.test = test
+
+    def add_organization(self, organization):
+        """Add your dataset to an organization.
+
+        Arguments:
+            organization (str or list of str): The organization(s) to add.
+                    If the organization is not registered with MDF, it will be discarded.
+                    Parent organizations will be added automatically.
+        """
+        if not isinstance(organization, list):
+            organization = [organization]
+        if not self.mdf.get("organizations"):
+            self.mdf["organizations"] = organization
+        else:
+            self.mdf["organizations"].extend(organization)
+
+    def clear_organizations(self):
+        """Clear all added organizations from the submission."""
+        self.mdf.pop("organizations", None)
+
+    # ***********************************************
+    # * Optional inputs
+    # ***********************************************
+
+    def set_custom_block(self, custom_fields):
+        """Set the custom block for your dataset.
+
+        Arguments:
+            custom_fields (dict): Custom field-value pairs for your dataset.
+                    You may add descriptions of your fields by creating a new field
+                    called ``[field]_desc`` with the string description inside, or by
+                    calling ``set_custom_descriptions()``.
+        """
+        try:
+            json.dumps(custom_fields, allow_nan=False)
+        except Exception as e:
+            return "Error: Your custom block is invalid: {}".format(repr(e))
+        self.custom = custom_fields
+
+    def set_custom_descriptions(self, custom_descriptions):
+        """Add descriptions to your custom block.
+
+        Arguments:
+            custom_descriptions (dict): Custom field-description pairs for your dataset.
+                Field names in this argument must match field names added by
+                calling ``set_custom_block()``.
+        """
+        try:
+            json.dumps(custom_descriptions, allow_nan=False)
+        except Exception as e:
+            return "Error: Your custom descriptions are invalid: {}".format(repr(e))
+        for field, desc in custom_descriptions.items():
+            self.custom[field+"_desc"] = desc
+
+    def set_acl(self, acl):
+        """Set the Access Control List for your dataset.
+
+        Arguments:
+            acl (str or list of str): The Globus UUIDs of users or groups that
+                    should be granted access to the dataset.
+                    **Default:** The special keyword ``"public"``, which makes the dataset
+                    visible to everyone.
+        """
+        if not isinstance(acl, list):
+            acl = [acl]
+        self.mdf["acl"] = acl
+
+    def clear_acl(self):
+        """Reset the ACL of your dataset to the default value ``["public"]``."""
+        self.mdf.pop("acl", None)
+
+    def set_source_name(self, source_name):
+        """Set the source name for your dataset.
+
+        Arguments:
+            source_name (str): The desired source name. Must be unique for new datasets.
+                    Please note that your source name will be cleaned when submitted to Connect,
+                    so the actual ``source_name`` may differ from this value.
+                    Additionally, the ``source_id`` (which is the ``source_name`` plus
+                    version information) is required to fetch the status of a submission.
+                    ``check_status()`` can handle this for you.
+        """
+        self.mdf["source_name"] = source_name
+
+    def clear_source_name(self):
+        """Remove a previously set source_name."""
+        self.mdf.pop("source_name", None)
+
+    def add_data_destination(self, data_destination):
+        """Add a data destination to your submission.
+        Note that this method is cumulative, so calls do not overwrite previous ones.
+
+        Arguments:
+            data_destination (str or list of str): The destination for the data.
+                    Destinations must be Globus Endpoints, and formatted with protocol.
+
+                    Example:
+                        ``"globus://endpoint123/path/data.out"``
+        """
+        if not isinstance(data_destination, list):
+            data_destination = [data_destination]
+        self.data_destinations.extend(data_destination)
+
+    def clear_data_destinations(self):
+        """Clear all data destinations added so far to your dataset."""
+        self.data_destinations = []
+
+    def create_mrr_block(self, mrr_data):
+        """Create the mrr block for your dataset.
+        This helper should be more helpful in the future.
+
+        Arguments:
+            mrr_data (dict): The MRR schema-compliant metadata.
+        """
+        self.mrr = mrr_data
+
+    # ***********************************************
+    # * Advanced inputs
+    # ***********************************************
 
     def set_passthrough(self, passthrough):
         """Set the dataset pass-through flag for your submission.
@@ -566,6 +536,56 @@ class MDFConnectClient:
                     **Default:** ``False``
         """
         self.no_convert = passthrough
+
+    def set_project_block(self, project, data):
+        """Set the project block for your dataset.
+        Intended only for use by members of an approved project.
+        To delete a project block, call this method with ``data=None``.
+
+        Arguments:
+            project (str): The name of the project block.
+            data (dict): The data for the project block.
+        """
+        try:
+            json.dumps(data, allow_nan=False)
+        except Exception as e:
+            return "Your project block is invalid: {}".format(repr(e))
+        if data:
+            self.projects[project] = data
+        else:
+            self.projects.pop(project, None)
+
+    def set_curation(self, curation):
+        """Set the curation flag for this submission.
+
+        Note:
+            Normally, this flag is set automatically by an organization, and is not set
+            manually by the dataset submitter.
+
+        Arguments:
+            curation (bool): When ``False``, the dataset will be processed normally.
+                    When ``True``, the dataset must be approved in curation
+                    before it will be ingested to MDF Search or any other service.
+                    **Default:** ``False``
+        """
+        self.curation = curation
+
+    def set_conversion_config(self, config):
+        """Set advanced configuration parameters for dataset conversion.
+        These parameters are intended for advanced users and/or special-case datasets.
+
+        Arguments:
+            config (dict): The conversion configuration parameters.
+        """
+        try:
+            json.dumps(config, allow_nan=False)
+        except Exception as e:
+            return "Error: Your conversion config is invalid: {}".format(repr(e))
+        self.conversion_config = config
+
+    # ***********************************************
+    # * Dataset submission
+    # ***********************************************
 
     def get_submission(self):
         """Fetch the current state of your submission.
@@ -740,7 +760,11 @@ class MDFConnectClient:
             "status_code": res.status_code
         }
 
-    def check_status(self, source_id=None, raw=False):
+    # ***********************************************
+    # * Status checking
+    # ***********************************************
+
+    def check_status(self, source_id=None, short=False, raw=False):
         """Check the status of your submission.
         You may only check the status of your own submissions.
 
@@ -748,6 +772,11 @@ class MDFConnectClient:
             source_id (str): The ``source_id`` (``source_name`` + version information) of the
                     submission to check.
                     **Default:** ``self.source_id``
+            short (bool): When ``False``, will print a status summary containing
+                    all of the status steps for the dataset.
+                    When ``True``, will print a short finished/processing message,
+                    useful for checking many datasets' status at once.
+                    **Default:** ``False``
             raw (bool): When ``False``, will print a nicely-formatted status summary.
                     When ``True``, will return the full status result.
                     For direct human consumption, ``False`` is recommended.
@@ -790,9 +819,14 @@ class MDFConnectClient:
                 return json_res
             elif res.status_code >= 300:
                 print("Error {} fetching status: {}".format(res.status_code, json_res))
+            elif short:
+                print("{}: This submission is {}"
+                      .format((source_id or self.source_id),
+                              ("active." if json_res["status"]["active"] else "inactive.")))
             else:
-                print("\n", json_res["status"]["status_message"], "\nThis submission is ",
-                      ("active." if json_res["status"]["active"] else "inactive."), sep="")
+                print("\n{}\nThis submission is {}\n"
+                      .format(json_res["status"]["status_message"],
+                              ("active." if json_res["status"]["active"] else "inactive.")))
 
     def check_all_submissions(self, verbose=False, active=False, raw=False,
                               _admin_code=None):
@@ -883,6 +917,10 @@ class MDFConnectClient:
                             print("{}: {} - {}".format(sub["source_id"],
                                                        ("Active" if sub["active"] else "Inactive"),
                                                        status_word))
+
+    # ***********************************************
+    # * Curation
+    # ***********************************************
 
     def get_curation_task(self, source_id, summary=False, raw=False):
         """Get the content of a curation task.
@@ -1057,25 +1095,40 @@ class MDFConnectClient:
         # Validate verdict
         verdict = verdict.strip().lower()
         if verdict not in self.default_curation_reasons.keys():
-            return {
-                "success": False,
-                "error": ("Verdict '{}' is invalid. Valid verdicts are: {}"
-                          .format(verdict, self.default_curation_reasons.keys()))
-            }
+            error = ("Verdict '{}' is invalid. Valid verdicts are: {}"
+                     .format(verdict, self.default_curation_reasons.keys()))
+            if raw:
+                return {
+                    "success": False,
+                    "error": error
+                }
+            else:
+                print(error)
+                return
         # Check that curation task exists
         task_json = self.get_curation_task(source_id, raw=True)
         if task_json["status_code"] == 404:
-            return {
-                "success": False,
-                "error": task_json.get("error", "Curation task not found")
-            }
+            error = task_json.get("error", "Curation task not found")
+            if raw:
+                return {
+                    "success": False,
+                    "error": error
+                }
+            else:
+                print(error)
+                return
         elif task_json["status_code"] >= 300:
             default_error = "MDF Connect may be experiencing technical difficulties."
-            return {
-                "success": False,
-                "error": ("Error {} fetching curation task: {}"
-                          .format(task_json["status_code"], task_json.get("error", default_error)))
-            }
+            error = ("Error {} fetching curation task: {}"
+                     .format(task_json["status_code"], task_json.get("error", default_error)))
+            if raw:
+                return {
+                    "success": False,
+                    "error": error
+                }
+            else:
+                print(error)
+                return
 
         # Prompt user to confirm, if requested
         if prompt:
@@ -1083,10 +1136,15 @@ class MDFConnectClient:
             self.get_curation_task(source_id, summary=True)
             prompt_response = input("\nConfirm {}ing submission [yes/no]: ".format(verdict))
             if prompt_response.strip().lower() != "yes":
-                return {
-                    "success": False,
-                    "error": "Curation cancelled"
-                }
+                error = "Curation cancelled"
+                if raw:
+                    return {
+                        "success": False,
+                        "error": error
+                    }
+                else:
+                    print(error)
+                    return
             elif not reason:
                 reason = input("\nWhat is the reason for {}ing this submission?\n\t"
                                .format(verdict)).strip()
