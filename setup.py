@@ -9,6 +9,7 @@ setup(
                       " datasets to MDF Connect."),
     install_requires=[
         "mdf-toolbox>=0.2.6",
+        "nameparser>=1.0.4",
         "requests>=2.18.4"
     ],
     python_requires=">=3.5",

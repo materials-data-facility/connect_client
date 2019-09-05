@@ -22,7 +22,7 @@ def test_create_dc_block():
     # Full test, no lists
     mdf.create_dc_block(
         title="Connect Title",
-        authors="Data Facility; Materials",
+        authors="Data Facility, Materials",
         affiliations="UChicago",
         publisher="Globus",
         publication_year="2017",
@@ -70,7 +70,7 @@ def test_create_dc_block():
     # Full test, all lists
     mdf.create_dc_block(
         title=["Connect Title", "Other Title"],
-        authors=["Data Facility; Materials", "Blaiszik, Ben", "Jonathon Gaff"],
+        authors=["Data Facility, Materials", "Blaiszik, Ben", "Jonathon Gaff"],
         affiliations=["UChicago", "Argonne"],
         publisher="Globus",
         publication_year="2017",
@@ -143,18 +143,18 @@ def test_create_dc_block():
     # Minimum test
     mdf.create_dc_block(
         title="Project One",
-        authors=["Senior Programmer", "Programmer, Junior"]
+        authors=["Artemis Moonshot", "Landing, Apollo"]
     )
     assert mdf.dc == {
         'creators': [{
-                'creatorName': 'Programmer, Senior',
-                'familyName': 'Programmer',
-                'givenName': 'Senior'
+                'creatorName': 'Moonshot, Artemis',
+                'familyName': 'Moonshot',
+                'givenName': 'Artemis'
             },
             {
-                'creatorName': 'Programmer, Junior',
-                'familyName': 'Programmer',
-                'givenName': 'Junior'
+                'creatorName': 'Landing, Apollo',
+                'familyName': 'Landing',
+                'givenName': 'Apollo'
             }
         ],
         'publicationYear': '2019',
