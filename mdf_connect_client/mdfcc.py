@@ -476,6 +476,21 @@ class MDFConnectClient:
         """Remove a previously set source_name."""
         self.mdf.pop("source_name", None)
 
+    def set_incremental_update(self, source_id):
+        """Make this submission an incremental update of a previous submission.
+        Incremental updates use the same submission metadata, except for whatever you
+        specify in the new submission. For example, if you submit an incremental update
+        and only include a ``data_source``, the submission will run as if you copied the
+        DC block and other metadata into the submission, but with the new ``data_source``.
+
+        Note:
+            You must still set ``update=True`` when submitting an incremental update.
+
+        Arguments:
+            source_id (str): The ``source_id`` of the previous submission to update.
+        """
+        self.incremental_update = source_id
+
     def add_data_destination(self, data_destination):
         """Add a data destination to your submission.
         Note that this method is cumulative, so calls do not overwrite previous ones.
@@ -608,6 +623,8 @@ class MDFConnectClient:
             submission["curation"] = self.curation
         if self.no_convert:
             submission["no_convert"] = self.no_convert
+        if self.incremental_update:
+            submission["incremental_update"] = self.incremental_update
         return submission
 
     def reset_submission(self):
@@ -634,6 +651,7 @@ class MDFConnectClient:
         self.set_conversion_config({})
         self.set_curation(False)
         self.set_passthrough(False)
+        self.set_incremental_update(False)
 
         self.clear_data_sources()
         self.clear_data_destinations()
@@ -690,7 +708,8 @@ class MDFConnectClient:
             submission = self.get_submission()
 
         # Check for required data
-        if not submission["dc"] or not submission["data_sources"]:
+        if ((not submission["dc"] or not submission["data_sources"])
+                and not submission["incremental_update"]):
             return {
                 'source_id': None,
                 'success': False,
