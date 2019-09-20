@@ -3,6 +3,7 @@ import json
 
 import globus_sdk
 import mdf_toolbox
+from nameparser import HumanName
 import requests
 
 
@@ -106,13 +107,8 @@ class MDFConnectClient:
 
         Arguments:
             title (str or list of str): The title(s) of the dataset.
-            authors (str or list of str): The author(s) of the dataset. Format must be one of:
-
-                    * ``"Givenname Familyname"``
-                    * ``"Familyname, Givenname"``
-                    * ``"Familyname; Givenname"``
-
-                    No additional commas or semicolons are permitted.
+            authors (str or list of str): The author(s) of the dataset.
+                    The name will be automatically parsed into given name and family name.
             publisher (str): The publisher of the dataset (not an associated paper).
                     **Default:** The Materials Data Facility.
             publication_year (int or str): The year of dataset publication.
@@ -174,25 +170,16 @@ class MDFConnectClient:
             affiliations = [affiliations] * len(authors)
         creators = []
         for auth, affs in zip(authors, affiliations):
-            if auth.find(",") >= 0:
-                family, given = auth.split(",", 1)
-            elif auth.find(";") >= 0:
-                family, given = auth.split(";", 1)
-            elif auth.find(" ") >= 0:
-                given, family = auth.split(" ", 1)
-            else:
-                given = auth
-                family = ""
-            if not isinstance(affs, list):
-                affs = [affs]
-
-            family = family.strip()
-            given = given.strip()
+            name = HumanName(auth)
+            given = "{} {}".format(name.first, name.middle).strip()
+            family = "{} {}".format(name.last, name.suffix).strip()
             creator = {
-                "creatorName": "{}, {}".format(family, given),
+                "creatorName": "{}, {}".format(family, given).strip(" ,"),
                 "familyName": family,
                 "givenName": given
             }
+            if not isinstance(affs, list):
+                affs = [affs]
             if affs:
                 creator["affiliations"] = affs
             creators.append(creator)

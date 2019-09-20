@@ -1,4 +1,6 @@
 # MDF Connect Client
+[![PyPI](https://img.shields.io/pypi/v/mdf_connect_client.svg)](https://pypi.python.org/pypi/mdf-connect-client) [![Build Status](https://travis-ci.org/materials-data-facility/connect_client.svg?branch=master)](https://travis-ci.org/materials-data-facility/connect_client) [![Coverage Status](https://coveralls.io/repos/github/materials-data-facility/connect_client/badge.svg?branch=master)](https://coveralls.io/github/materials-data-facility/connect_client?branch=master) [![Read the Docs](https://readthedocs.org/projects/mdf-connect-client/badge/?version=master)](http://mdf-connect-client.readthedocs.io/en/master/)
+
 The MDF Connect Client is the Python client to easily submit datasets to MDF Connect.
 
 # Installation
@@ -19,7 +21,7 @@ Documentation is available on [Read the Docs](https://mdf-connect-client.readthe
 
 
 # Requirements
-* The Connect Client requires Python 3.4 or greater.
+* The Connect Client requires Python 3.5 or greater.
 * To submit data to MDF Connect, you must have an account recognized by Globus Auth (including Google, ORCiD, many academic institutions, or a [free Globus ID](https://www.globusid.org/create)), and be a member of the [MDF Connect Convert Globus Group](https://app.globus.org/groups/cc192dca-3751-11e8-90c1-0a7c735d220a).
 
 
