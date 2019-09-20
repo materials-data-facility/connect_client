@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='mdf_connect_client',
-    version='0.3.2',
+    version='0.3.3',
     packages=['mdf_connect_client'],
     description='Materials Data Facility Connect Client',
     long_description=("The MDF Connect Client is the Python client to easily submit"
