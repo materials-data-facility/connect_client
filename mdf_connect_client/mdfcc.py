@@ -476,6 +476,21 @@ class MDFConnectClient:
         """Remove a previously set source_name."""
         self.mdf.pop("source_name", None)
 
+    def set_incremental_update(self, source_id):
+        """Make this submission an incremental update of a previous submission.
+        Incremental updates use the same submission metadata, except for whatever you
+        specify in the new submission. For example, if you submit an incremental update
+        and only include a ``data_source``, the submission will run as if you copied the
+        DC block and other metadata into the submission, but with the new ``data_source``.
+
+        Note:
+            You must still set ``update=True`` when submitting an incremental update.
+
+        Arguments:
+            source_id (str): The ``source_id`` of the previous submission to update.
+        """
+        self.incremental_update = source_id
+
     def add_data_destination(self, data_destination):
         """Add a data destination to your submission.
         Note that this method is cumulative, so calls do not overwrite previous ones.
@@ -494,6 +509,19 @@ class MDFConnectClient:
     def clear_data_destinations(self):
         """Clear all data destinations added so far to your dataset."""
         self.data_destinations = []
+
+    def set_external_uri(self, uri):
+        """Set an external URI for your dataset. This is used to point at
+        a landing page outside of MDF that also hosts the dataset.
+
+        Arguments:
+            uri (str): The external URI.
+        """
+        self.external_uri = uri
+
+    def clear_external_uri(self):
+        """Remove any set external URI from your submission."""
+        self.external_uri = None
 
     def create_mrr_block(self, mrr_data):
         """Create the mrr block for your dataset.
@@ -596,6 +624,8 @@ class MDFConnectClient:
             submission["projects"] = self.projects
         if self.data_destinations:
             submission["data_destinations"] = self.data_destinations
+        if self.external_uri:
+            submission["external_uri"] = self.external_uri
         if self.index:
             submission["index"] = self.index
         if self.conversion_config:
@@ -608,6 +638,8 @@ class MDFConnectClient:
             submission["curation"] = self.curation
         if self.no_convert:
             submission["no_convert"] = self.no_convert
+        if self.incremental_update:
+            submission["incremental_update"] = self.incremental_update
         return submission
 
     def reset_submission(self):
@@ -634,8 +666,10 @@ class MDFConnectClient:
         self.set_conversion_config({})
         self.set_curation(False)
         self.set_passthrough(False)
+        self.set_incremental_update(False)
 
         self.clear_data_sources()
+        self.clear_external_uri()
         self.clear_data_destinations()
         self.clear_index()
         self.clear_services()
@@ -690,7 +724,8 @@ class MDFConnectClient:
             submission = self.get_submission()
 
         # Check for required data
-        if not submission["dc"] or not submission["data_sources"]:
+        if ((not submission["dc"] or not submission["data_sources"])
+                and not submission["incremental_update"]):
             return {
                 'source_id': None,
                 'success': False,
