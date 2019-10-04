@@ -510,6 +510,19 @@ class MDFConnectClient:
         """Clear all data destinations added so far to your dataset."""
         self.data_destinations = []
 
+    def set_external_uri(self, uri):
+        """Set an external URI for your dataset. This is used to point at
+        a landing page outside of MDF that also hosts the dataset.
+
+        Arguments:
+            uri (str): The external URI.
+        """
+        self.external_uri = uri
+
+    def clear_external_uri(self):
+        """Remove any set external URI from your submission."""
+        self.external_uri = None
+
     def create_mrr_block(self, mrr_data):
         """Create the mrr block for your dataset.
         This helper should be more helpful in the future.
@@ -611,6 +624,8 @@ class MDFConnectClient:
             submission["projects"] = self.projects
         if self.data_destinations:
             submission["data_destinations"] = self.data_destinations
+        if self.external_uri:
+            submission["external_url"] = self.external_uri
         if self.index:
             submission["index"] = self.index
         if self.conversion_config:
@@ -654,6 +669,7 @@ class MDFConnectClient:
         self.set_incremental_update(False)
 
         self.clear_data_sources()
+        self.clear_external_uri()
         self.clear_data_destinations()
         self.clear_index()
         self.clear_services()
