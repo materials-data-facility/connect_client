@@ -625,7 +625,7 @@ class MDFConnectClient:
         if self.data_destinations:
             submission["data_destinations"] = self.data_destinations
         if self.external_uri:
-            submission["external_url"] = self.external_uri
+            submission["external_uri"] = self.external_uri
         if self.index:
             submission["index"] = self.index
         if self.conversion_config:
