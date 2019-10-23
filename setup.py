@@ -2,13 +2,13 @@ from setuptools import setup
 
 setup(
     name='mdf_connect_client',
-    version='0.3.4',
+    version='0.3.5',
     packages=['mdf_connect_client'],
     description='Materials Data Facility Connect Client',
     long_description=("The MDF Connect Client is the Python client to easily submit"
                       " datasets to MDF Connect."),
     install_requires=[
-        "mdf-toolbox>=0.2.6",
+        "mdf-toolbox>=0.5.0",
         "nameparser>=1.0.4",
         "requests>=2.18.4"
     ],
