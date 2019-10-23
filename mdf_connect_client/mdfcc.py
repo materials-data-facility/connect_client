@@ -26,7 +26,8 @@ DEFAULT_CURATION_REASONS = {
 class MDFConnectClient:
     """The MDF Connect Client is the Python client to easily submit datasets to MDF Connect."""
     __app_name = "MDF_Connect_Client"
-    __login_services = ["connect"]
+    __client_id = "fcb9bf5a-4492-4e25-970f-510b69abc964"
+    __login_services = ["mdf_connect"]
     __allowed_authorizers = [
         globus_sdk.RefreshTokenAuthorizer,
         globus_sdk.ClientCredentialsAuthorizer,
@@ -76,9 +77,9 @@ class MDFConnectClient:
         if any([isinstance(authorizer, allowed) for allowed in self.__allowed_authorizers]):
             self.__authorizer = authorizer
         else:
-            self.__authorizer = mdf_toolbox.login({"app_name": self.__app_name,
-                                                   "services": self.__login_services
-                                                   }).get("connect")
+            self.__authorizer = mdf_toolbox.login(services=self.__login_services,
+                                                  client_id=self.__client_id,
+                                                  app_name=self.__app_name).get("mdf_connect")
         if not self.__authorizer:
             raise ValueError("Unable to authenticate")
 
@@ -88,7 +89,7 @@ class MDFConnectClient:
         """
         self.reset_submission()
         self.__authorizer = None
-        mdf_toolbox.logout()
+        mdf_toolbox.logout(client_id=self.__client_id, app_name=self.__app_name)
         return "Logged out. You must create a new MDF Connect Client to log back in."
 
     # ***********************************************
