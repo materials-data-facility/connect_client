@@ -171,20 +171,29 @@ def test_create_dc_block():
 
 def test_acl():
     mdf = MDFConnectClient()
-    mdf.set_acl("12345abc")
+    mdf.set_base_acl("12345abc")
     assert mdf.mdf == {
         "acl": ["12345abc"]
     }
-    mdf.set_acl(["12345abc", "6789def"])
+    mdf.set_base_acl(["12345abc", "6789def"])
     assert mdf.mdf == {
         "acl": ["12345abc", "6789def"]
     }
-    mdf.set_acl("public")
+    mdf.set_base_acl("public")
     assert mdf.mdf == {
         "acl": ["public"]
     }
-    mdf.clear_acl()
+    mdf.clear_base_acl()
     assert mdf.mdf.get("acl", None) is None
+
+    mdf.set_dataset_acl("12345abc")
+    assert mdf.dataset_acl == ["12345abc"]
+    mdf.set_dataset_acl(["12345abc", "6789def"])
+    assert mdf.dataset_acl == ["12345abc", "6789def"]
+    mdf.set_dataset_acl("public")
+    assert mdf.dataset_acl == ["public"]
+    mdf.clear_dataset_acl()
+    assert mdf.dataset_acl is None
 
 
 def test_source_name():
