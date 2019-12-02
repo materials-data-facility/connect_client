@@ -451,6 +451,14 @@ class MDFConnectClient:
                     should be granted full read access to the dataset, including records and files.
                     **Default:** The special keyword ``"public"``, which makes the dataset
                     visible to everyone.
+
+        Warning:
+            The identities listed in the `base_acl` of your submission can always see
+            your submission, including dataset entry, even if they are not listed in
+            the ``dataset_acl``. This means that **if you do not specify a ``base_acl``**,
+            because it defaults to `"public"`, **your entire dataset will be public.**
+            MDF encourages you to make your data public, but if you do not want it public
+            you must specify this value.
         """
         if not isinstance(acl, list):
             acl = [acl]
