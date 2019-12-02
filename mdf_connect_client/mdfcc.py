@@ -443,22 +443,48 @@ class MDFConnectClient:
         for field, desc in custom_descriptions.items():
             self.custom[field+"_desc"] = desc
 
-    def set_acl(self, acl):
-        """Set the Access Control List for your dataset.
+    def set_base_acl(self, acl):
+        """Set the Access Control List for your entire dataset.
 
         Arguments:
             acl (str or list of str): The Globus UUIDs of users or groups that
-                    should be granted access to the dataset.
+                    should be granted full read access to the dataset, including records and files.
                     **Default:** The special keyword ``"public"``, which makes the dataset
                     visible to everyone.
+
+        Warning:
+            The identities listed in the `base_acl` of your submission can always see
+            your submission, including dataset entry, even if they are not listed in
+            the ``dataset_acl``. This means that **if you do not specify a ``base_acl``**,
+            because it defaults to `"public"`, **your entire dataset will be public.**
+            MDF encourages you to make your data public, but if you do not want it public
+            you must specify this value.
         """
         if not isinstance(acl, list):
             acl = [acl]
         self.mdf["acl"] = acl
 
-    def clear_acl(self):
-        """Reset the ACL of your dataset to the default value ``["public"]``."""
+    def clear_base_acl(self):
+        """Reset the base ACL of your dataset to the default value ``["public"]``."""
         self.mdf.pop("acl", None)
+
+    def set_dataset_acl(self, acl):
+        """Set the Access Control List for just the dataset entry of your dataset.
+
+        Arguments:
+            acl (str or list of str): The Globus UUIDs of users or groups that
+                    should be granted read access only to the dataset entry for your dataset
+                    in MDF Search (this includes the author list, title, etc. but
+                    does not include parsed metadata in records or files).
+                    Anyone listed in the base ACL already has this permission.
+        """
+        if not isinstance(acl, list):
+            acl = [acl]
+        self.dataset_acl = acl
+
+    def clear_dataset_acl(self):
+        """Remove all Globus UUIDs from the dataset ACL for your dataset."""
+        self.dataset_acl = None
 
     def set_source_name(self, source_name):
         """Set the source name for your dataset.
@@ -639,6 +665,8 @@ class MDFConnectClient:
             submission["curation"] = self.curation
         if self.no_convert:
             submission["no_convert"] = self.no_convert
+        if self.dataset_acl:
+            submission["dataset_acl"] = self.dataset_acl
         if self.incremental_update:
             submission["incremental_update"] = self.incremental_update
         return submission
@@ -675,6 +703,7 @@ class MDFConnectClient:
         self.clear_index()
         self.clear_services()
         self.clear_tags()
+        self.clear_dataset_acl()
 
         self.source_id = None
 
