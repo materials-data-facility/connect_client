@@ -866,19 +866,19 @@ class MDFConnectClient:
                 print("Error {}. MDF Connect may be experiencing technical"
                       " difficulties.".format(res.status_code))
         else:
+            if json_res["status"]["active"]:
+                active_msg = "This submission is still processing."
+            else:
+                active_msg = "This submission is no longer processing."
             if raw:
                 json_res["status_code"] = res.status_code
                 return json_res
             elif res.status_code >= 300:
                 print("Error {} fetching status: {}".format(res.status_code, json_res))
             elif short:
-                print("{}: This submission is {}"
-                      .format((source_id or self.source_id),
-                              ("active." if json_res["status"]["active"] else "inactive.")))
+                print("{}: {}".format((source_id or self.source_id), active_msg))
             else:
-                print("\n{}\nThis submission is {}\n"
-                      .format(json_res["status"]["status_message"],
-                              ("active." if json_res["status"]["active"] else "inactive.")))
+                print("\n{}\n{}\n".format(json_res["status"]["status_message"], active_msg))
 
     def check_all_submissions(self, verbose=False, active=False, raw=False,
                               _admin_code=None):
@@ -948,8 +948,11 @@ class MDFConnectClient:
                     if not active or sub["active"]:
                         if verbose:
                             # Same message as check_status() with extra spacing
-                            print("\n\n", sub["status_message"], "\nThis submission is ",
-                                  ("active." if sub["active"] else "inactive."), sep="")
+                            if json_res["status"]["active"]:
+                                active_msg = "This submission is still processing."
+                            else:
+                                active_msg = "This submission is no longer processing."
+                            print("\n\n", sub["status_message"], active_msg, sep="")
                         else:
                             # Decide if submission failed/succeeded/in processing/etc.
                             if "F" in sub["status_code"]:
@@ -967,8 +970,8 @@ class MDFConnectClient:
                             else:
                                 status_word = "Unknown"
                             print("{}: {} - {}".format(sub["source_id"],
-                                                       ("Active" if sub["active"] else "Inactive"),
-                                                       status_word))
+                                                       ("Processing" if sub["active"]
+                                                        else "Not processing"), status_word))
 
     # ***********************************************
     # * Curation

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from mdf_toolbox import insensitive_comparison
 import pytest
 
@@ -157,7 +159,7 @@ def test_create_dc_block():
                 'givenName': 'Apollo'
             }
         ],
-        'publicationYear': '2019',
+        'publicationYear': str(datetime.now().year),
         'publisher': 'Materials Data Facility',
         'resourceType': {
             'resourceType': 'Dataset',
