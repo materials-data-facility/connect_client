@@ -9,13 +9,13 @@ import requests
 
 CONNECT_SERVICE_LOC = "https://api.materialsdatafacility.org"
 CONNECT_DEV_LOC = "https://dev-api.materialsdatafacility.org"
-CONNECT_CONVERT_ROUTE = "/submit"
+CONNECT_EXTRACT_ROUTE = "/submit"
 CONNECT_STATUS_ROUTE = "/status/"
 CONNECT_ALL_STATUS_ROUTE = "/submissions/"
 CONNECT_CURATION_ROUTE = "/curate/"
 CONNECT_ALL_CURATION_ROUTE = "/curation/"
 CURATION_SUMMARY_STR = ("{source_id} by {submitter}\nWaiting since {waiting_since}"
-                        "\n{parsing_summary}\n")
+                        "\n{extraction_summary}\n")
 DEFAULT_CURATION_REASONS = {
     "accept": "This submission has been accepted because it meets the appropriate standards",
     "reject": ("This submission has been rejected because it does not meet the "
@@ -64,7 +64,7 @@ class MDFConnectClient:
         else:
             raise ValueError("'service_instance' must be 'prod' or 'dev', not '{}'"
                              .format(service_instance))
-        self.convert_route = CONNECT_CONVERT_ROUTE
+        self.extract_route = CONNECT_EXTRACT_ROUTE
         self.status_route = CONNECT_STATUS_ROUTE
         self.all_status_route = CONNECT_ALL_STATUS_ROUTE
         self.curation_route = CONNECT_CURATION_ROUTE
@@ -475,7 +475,7 @@ class MDFConnectClient:
             acl (str or list of str): The Globus UUIDs of users or groups that
                     should be granted read access only to the dataset entry for your dataset
                     in MDF Search (this includes the author list, title, etc. but
-                    does not include parsed metadata in records or files).
+                    does not include extracted metadata in records or files).
                     Anyone listed in the base ACL already has this permission.
         """
         if not isinstance(acl, list):
@@ -567,17 +567,16 @@ class MDFConnectClient:
         """Set the dataset pass-through flag for your submission.
 
         Caution:
-            This flag will cause your dataset to not be parsed by MDF Connect, so only
-            high-level dataset metadata will be available in MDF Search. *This flag is only
-            intended for oversize datasets that cannot be parsed.* If your dataset is not
-            oversize, do not set this flag.
+            This flag will cause metadata from your dataset's files to not be extracted by
+            MDF Connect, so only high-level dataset metadata will be available in MDF Search.
+            *This flag is only intended for datasets that cannot be extracted.*
 
         Arguments:
             passthrough (bool): When ``False``, the dataset will be processed normally.
-                    When ``True``, the files in the dataset will not be parsed.
+                    When ``True``, the metadata in the files will not be extracted.
                     **Default:** ``False``
         """
-        self.no_convert = passthrough
+        self.no_extract = passthrough
 
     def set_project_block(self, project, data):
         """Set the project block for your dataset.
@@ -612,18 +611,18 @@ class MDFConnectClient:
         """
         self.curation = curation
 
-    def set_conversion_config(self, config):
-        """Set advanced configuration parameters for dataset conversion.
+    def set_extraction_config(self, config):
+        """Set advanced configuration parameters for dataset extraction.
         These parameters are intended for advanced users and/or special-case datasets.
 
         Arguments:
-            config (dict): The conversion configuration parameters.
+            config (dict): The extraction configuration parameters.
         """
         try:
             json.dumps(config, allow_nan=False)
         except Exception as e:
-            return "Error: Your conversion config is invalid: {}".format(repr(e))
-        self.conversion_config = config
+            return "Error: Your extraction config is invalid: {}".format(repr(e))
+        self.extraction_config = config
 
     # ***********************************************
     # * Dataset submission
@@ -655,16 +654,16 @@ class MDFConnectClient:
             submission["external_uri"] = self.external_uri
         if self.index:
             submission["index"] = self.index
-        if self.conversion_config:
-            submission["conversion_config"] = self.conversion_config
+        if self.extraction_config:
+            submission["extraction_config"] = self.extraction_config
         if self.services:
             submission["services"] = self.services
         if self.tags:
             submission["tags"] = self.tags
         if self.curation:
             submission["curation"] = self.curation
-        if self.no_convert:
-            submission["no_convert"] = self.no_convert
+        if self.no_extract:
+            submission["no_extract"] = self.no_extract
         if self.dataset_acl:
             submission["dataset_acl"] = self.dataset_acl
         if self.incremental_update:
@@ -692,7 +691,7 @@ class MDFConnectClient:
         self.projects = {}
 
         self.set_custom_block({})
-        self.set_conversion_config({})
+        self.set_extraction_config({})
         self.set_curation(False)
         self.set_passthrough(False)
         self.set_incremental_update(False)
@@ -774,13 +773,13 @@ class MDFConnectClient:
         # Make the request
         headers = {}
         self.__authorizer.set_authorization_header(headers)
-        res = requests.post(self.service_loc+self.convert_route,
+        res = requests.post(self.service_loc+self.extract_route,
                             json=submission, headers=headers)
         # Handle first 401/403 by regenerating auth headers
         if res.status_code == 401 or res.status_code == 403:
             self.__authorizer.handle_missing_authorization()
             self.__authorizer.set_authorization_header(headers)
-            res = requests.post(self.service_loc+self.convert_route,
+            res = requests.post(self.service_loc+self.extract_route,
                                 json=submission, headers=headers)
 
         # Check for success
@@ -866,19 +865,19 @@ class MDFConnectClient:
                 print("Error {}. MDF Connect may be experiencing technical"
                       " difficulties.".format(res.status_code))
         else:
+            if json_res["status"]["active"]:
+                active_msg = "This submission is still processing."
+            else:
+                active_msg = "This submission is no longer processing."
             if raw:
                 json_res["status_code"] = res.status_code
                 return json_res
             elif res.status_code >= 300:
                 print("Error {} fetching status: {}".format(res.status_code, json_res))
             elif short:
-                print("{}: This submission is {}"
-                      .format((source_id or self.source_id),
-                              ("active." if json_res["status"]["active"] else "inactive.")))
+                print("{}: {}".format((source_id or self.source_id), active_msg))
             else:
-                print("\n{}\nThis submission is {}\n"
-                      .format(json_res["status"]["status_message"],
-                              ("active." if json_res["status"]["active"] else "inactive.")))
+                print("\n{}\n{}\n".format(json_res["status"]["status_message"], active_msg))
 
     def check_all_submissions(self, verbose=False, active=False, raw=False,
                               _admin_code=None):
@@ -948,8 +947,11 @@ class MDFConnectClient:
                     if not active or sub["active"]:
                         if verbose:
                             # Same message as check_status() with extra spacing
-                            print("\n\n", sub["status_message"], "\nThis submission is ",
-                                  ("active." if sub["active"] else "inactive."), sep="")
+                            if sub["active"]:
+                                active_msg = "This submission is still processing."
+                            else:
+                                active_msg = "This submission is no longer processing."
+                            print("\n\n", sub["status_message"], active_msg, sep="")
                         else:
                             # Decide if submission failed/succeeded/in processing/etc.
                             if "F" in sub["status_code"]:
@@ -967,8 +969,8 @@ class MDFConnectClient:
                             else:
                                 status_word = "Unknown"
                             print("{}: {} - {}".format(sub["source_id"],
-                                                       ("Active" if sub["active"] else "Inactive"),
-                                                       status_word))
+                                                       ("Processing" if sub["active"]
+                                                        else "Not processing"), status_word))
 
     # ***********************************************
     # * Curation
@@ -1031,7 +1033,7 @@ class MDFConnectClient:
                                 source_id=task["source_id"],
                                 submitter=task["submission_info"]["submitter"],
                                 waiting_since=task["curation_start_date"],
-                                parsing_summary=task["parsing_summary"]))
+                                extraction_summary=task["extraction_summary"]))
             else:
                 task = json_res["curation_task"]
                 # TODO: Are the dataset and record entries human-useful?
@@ -1106,7 +1108,7 @@ class MDFConnectClient:
                                     source_id=task["source_id"],
                                     submitter=task["submission_info"]["submitter"],
                                     waiting_since=task["curation_start_date"],
-                                    parsing_summary=task["parsing_summary"]))
+                                    extraction_summary=task["extraction_summary"]))
             else:
                 for task in json_res["curation_tasks"]:
                     # TODO: Are the dataset and record entries human-useful?
