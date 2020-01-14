@@ -343,17 +343,17 @@ def test_index():
     assert mdf.index == {}
 
 
-def test_conversion_config():
+def test_extraction_config():
     mdf = MDFConnectClient()
-    mdf.set_conversion_config({"group_by_dir": True})
-    assert mdf.conversion_config == {"group_by_dir": True}
+    mdf.set_extraction_config({"group_by_dir": True})
+    assert mdf.extraction_config == {"group_by_dir": True}
     # OOR floats not allowed
-    res = mdf.set_conversion_config({"dirs": float("nan")})
-    assert "Error: Your conversion config is invalid" in res
-    assert mdf.conversion_config == {"group_by_dir": True}
+    res = mdf.set_extraction_config({"dirs": float("nan")})
+    assert "Error: Your extraction config is invalid" in res
+    assert mdf.extraction_config == {"group_by_dir": True}
     # Clear block
-    mdf.set_conversion_config({})
-    assert mdf.conversion_config == {}
+    mdf.set_extraction_config({})
+    assert mdf.extraction_config == {}
 
 
 def test_services():
@@ -416,11 +416,11 @@ def test_set_test():
 
 def test_passthrough():
     mdf = MDFConnectClient()
-    assert mdf.no_convert is False
+    assert mdf.no_extract is False
     mdf.set_passthrough(True)
-    assert mdf.no_convert is True
+    assert mdf.no_extract is True
     mdf.set_passthrough(False)
-    assert mdf.no_convert is False
+    assert mdf.no_extract is False
 
 
 def test_submission():
