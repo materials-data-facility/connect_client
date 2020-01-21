@@ -1,8 +1,15 @@
+import os
 from setuptools import setup
+
+# Single source of truth for version
+version_ns = {}
+with open(os.path.join("mdf_connect_client", "version.py")) as f:
+    exec(f.read(), version_ns)
+version = version_ns['__version__']
 
 setup(
     name='mdf_connect_client',
-    version='0.3.7',
+    version=version,
     packages=['mdf_connect_client'],
     description='Materials Data Facility Connect Client',
     long_description=("The MDF Connect Client is the Python client to easily submit"

@@ -6,6 +6,7 @@ import mdf_toolbox
 from nameparser import HumanName
 import requests
 
+from .version import __version__
 
 CONNECT_SERVICE_LOC = "https://api.materialsdatafacility.org"
 CONNECT_DEV_LOC = "https://dev-api.materialsdatafacility.org"
@@ -91,6 +92,10 @@ class MDFConnectClient:
         self.__authorizer = None
         mdf_toolbox.logout(client_id=self.__client_id, app_name=self.__app_name)
         return "Logged out. You must create a new MDF Connect Client to log back in."
+
+    @property
+    def version(self):
+        return __version__
 
     # ***********************************************
     # * Mandatory inputs
