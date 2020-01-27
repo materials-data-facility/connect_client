@@ -15,6 +15,7 @@ CONNECT_STATUS_ROUTE = "/status/"
 CONNECT_ALL_STATUS_ROUTE = "/submissions/"
 CONNECT_CURATION_ROUTE = "/curate/"
 CONNECT_ALL_CURATION_ROUTE = "/curation/"
+CONNECT_MD_UPDATE_ROUTE = "/update/"
 CURATION_SUMMARY_STR = ("{source_id} by {submitter}\nWaiting since {waiting_since}"
                         "\n{extraction_summary}\n")
 DEFAULT_CURATION_REASONS = {
@@ -72,6 +73,7 @@ class MDFConnectClient:
         self.all_curation_route = CONNECT_ALL_CURATION_ROUTE
         self.curation_summary_template = CURATION_SUMMARY_STR
         self.default_curation_reasons = DEFAULT_CURATION_REASONS
+        self.md_update_route = CONNECT_MD_UPDATE_ROUTE
 
         self.reset_submission()
 
@@ -801,7 +803,8 @@ class MDFConnectClient:
             if res.status_code < 300:
                 self.source_id = json_res["source_id"]
             else:
-                error = "Error {} submitting dataset: {}".format(res.status_code, json_res)
+                error = ("Error {} submitting dataset: {}"
+                         .format(res.status_code, json_res.get("error", json_res)))
 
         # Prepare the output
         source_id = self.source_id
@@ -811,6 +814,82 @@ class MDFConnectClient:
         # Return results
         return {
             "source_id": source_id,
+            "success": error is None,
+            "error": error,
+            "status_code": res.status_code
+        }
+
+    def submit_dataset_metadata_update(self, source_id, metadata_update=None, reset=False):
+        """Submit an update to a dataset entry (and NOT the data or record entries).
+
+        Arguments:
+            source_id (str): The ``source_id`` of the dataset you wish to update.
+                    You must be the owner of the dataset.
+            metadata_update (dict): If you have assembled the dataset metadata yourself,
+                    you can submit it here. This argument supersedes any data
+                    set through other methods.
+                    **Default:** ``None``, to use method-assembled data.
+            reset (bool): If True, will clear the old metadata from the client.
+                    The test flag will be preserved.
+                    If ``False``, the metadata will be preserved.
+                    **Default:** ``False``
+        """
+        if not metadata_update:
+            metadata_update = self.get_submission()
+        # Strip off submission pieces not used in update
+        metadata_update.pop("data_sources", None)
+        metadata_update.pop("test", None)
+        metadata_update.pop("update", None)
+        metadata_update.pop("data_destinations", None)
+        metadata_update.pop("index", None)
+        metadata_update.pop("extraction_config", None)
+        metadata_update.pop("services", None)
+        metadata_update.pop("curation", None)
+        metadata_update.pop("no_extract", None)
+        metadata_update.pop("incremental_update", None)
+
+        # Validate JSON
+        try:
+            json.dumps(metadata_update, allow_nan=False)
+        except Exception as e:
+            return {
+                'source_id': None,
+                'success': False,
+                'error': "The metadata update JSON is invalid: {}".format(repr(e))
+            }
+
+        # Make the request
+        headers = {}
+        self.__authorizer.set_authorization_header(headers)
+        res = requests.post(self.service_loc+self.md_update_route+source_id,
+                            json=metadata_update, headers=headers)
+        # Handle first 401/403 by regenerating auth headers
+        if res.status_code == 401 or res.status_code == 403:
+            self.__authorizer.handle_missing_authorization()
+            self.__authorizer.set_authorization_header(headers)
+            res = requests.post(self.service_loc+self.md_update_route+source_id,
+                                json=metadata_update, headers=headers)
+
+        # Check for success
+        error = None
+        try:
+            json_res = res.json()
+        except Exception:
+            if res.status_code < 300:
+                error = "Error decoding {} response: {}".format(res.status_code, res.content)
+            else:
+                error = ("Error {}. MDF Connect may be experiencing technical"
+                         " difficulties.").format(res.status_code)
+        else:
+            if res.status_code >= 300:
+                error = ("Error {} submitting dataset: {}"
+                         .format(res.status_code, json_res.get("error", json_res)))
+
+        if reset:
+            self.reset_submission()
+
+        # Return results
+        return {
             "success": error is None,
             "error": error,
             "status_code": res.status_code
@@ -878,7 +957,8 @@ class MDFConnectClient:
                 json_res["status_code"] = res.status_code
                 return json_res
             elif res.status_code >= 300:
-                print("Error {} fetching status: {}".format(res.status_code, json_res))
+                print("Error {} fetching status: {}".format(res.status_code,
+                                                            json_res.get("error", json_res)))
             elif short:
                 print("{}: {}".format((source_id or self.source_id), active_msg))
             else:
@@ -944,7 +1024,8 @@ class MDFConnectClient:
                                            if (not active or sub["active"])]
                 return json_res
             elif res.status_code >= 300:
-                print("Error {} fetching status: {}".format(res.status_code, json_res))
+                print("Error {} fetching status: {}".format(res.status_code,
+                                                            json_res.get("error", json_res)))
             else:
                 if not verbose:
                     print()  # Newline, because non-verbose won't include one
