@@ -31,6 +31,7 @@ class MDFConnectClient:
     __client_id = "fcb9bf5a-4492-4e25-970f-510b69abc964"
     __login_services = ["mdf_connect"]
     __allowed_authorizers = [
+        globus_sdk.AccessTokenAuthorizer,
         globus_sdk.RefreshTokenAuthorizer,
         globus_sdk.ClientCredentialsAuthorizer,
         globus_sdk.NullAuthorizer
