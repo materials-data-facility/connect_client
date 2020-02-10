@@ -1,7 +1,7 @@
 # MDF Connect Client
 [![PyPI](https://img.shields.io/pypi/v/mdf_connect_client.svg)](https://pypi.python.org/pypi/mdf-connect-client) [![Build Status](https://travis-ci.org/materials-data-facility/connect_client.svg?branch=master)](https://travis-ci.org/materials-data-facility/connect_client) [![Coverage Status](https://coveralls.io/repos/github/materials-data-facility/connect_client/badge.svg?branch=master)](https://coveralls.io/github/materials-data-facility/connect_client?branch=master) [![Read the Docs](https://readthedocs.org/projects/mdf-connect-client/badge/?version=master)](http://mdf-connect-client.readthedocs.io/en/master/)
 
-The MDF Connect Client is the Python client to easily submit datasets to MDF Connect.
+The MDF Connect Client is the Python client to facilitate programmatic submission of datasets to MDF Connect, tracking of dataset status, and handling of curation tasks.
 
 # Installation
 
