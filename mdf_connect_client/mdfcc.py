@@ -950,7 +950,7 @@ class MDFConnectClient:
                 print("Error {}. MDF Connect may be experiencing technical"
                       " difficulties.".format(res.status_code))
         else:
-            if json_res["status"]["active"]:
+            if json_res.get("status", {}).get("active"):
                 active_msg = "This submission is still processing."
             else:
                 active_msg = "This submission is no longer processing."
