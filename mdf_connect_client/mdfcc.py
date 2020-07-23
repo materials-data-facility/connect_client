@@ -6,6 +6,7 @@ import mdf_toolbox
 from nameparser import HumanName
 import requests
 
+from .version import __version__
 
 CONNECT_SERVICE_LOC = "https://api.materialsdatafacility.org"
 CONNECT_DEV_LOC = "https://dev-api.materialsdatafacility.org"
@@ -14,6 +15,7 @@ CONNECT_STATUS_ROUTE = "/status/"
 CONNECT_ALL_STATUS_ROUTE = "/submissions/"
 CONNECT_CURATION_ROUTE = "/curate/"
 CONNECT_ALL_CURATION_ROUTE = "/curation/"
+CONNECT_MD_UPDATE_ROUTE = "/update/"
 CURATION_SUMMARY_STR = ("{source_id} by {submitter}\nWaiting since {waiting_since}"
                         "\n{extraction_summary}\n")
 DEFAULT_CURATION_REASONS = {
@@ -29,6 +31,7 @@ class MDFConnectClient:
     __client_id = "fcb9bf5a-4492-4e25-970f-510b69abc964"
     __login_services = ["mdf_connect"]
     __allowed_authorizers = [
+        globus_sdk.AccessTokenAuthorizer,
         globus_sdk.RefreshTokenAuthorizer,
         globus_sdk.ClientCredentialsAuthorizer,
         globus_sdk.NullAuthorizer
@@ -71,6 +74,7 @@ class MDFConnectClient:
         self.all_curation_route = CONNECT_ALL_CURATION_ROUTE
         self.curation_summary_template = CURATION_SUMMARY_STR
         self.default_curation_reasons = DEFAULT_CURATION_REASONS
+        self.md_update_route = CONNECT_MD_UPDATE_ROUTE
 
         self.reset_submission()
 
@@ -91,6 +95,10 @@ class MDFConnectClient:
         self.__authorizer = None
         mdf_toolbox.logout(client_id=self.__client_id, app_name=self.__app_name)
         return "Logged out. You must create a new MDF Connect Client to log back in."
+
+    @property
+    def version(self):
+        return __version__
 
     # ***********************************************
     # * Mandatory inputs
@@ -796,7 +804,8 @@ class MDFConnectClient:
             if res.status_code < 300:
                 self.source_id = json_res["source_id"]
             else:
-                error = "Error {} submitting dataset: {}".format(res.status_code, json_res)
+                error = ("Error {} submitting dataset: {}"
+                         .format(res.status_code, json_res.get("error", json_res)))
 
         # Prepare the output
         source_id = self.source_id
@@ -806,6 +815,82 @@ class MDFConnectClient:
         # Return results
         return {
             "source_id": source_id,
+            "success": error is None,
+            "error": error,
+            "status_code": res.status_code
+        }
+
+    def submit_dataset_metadata_update(self, source_id, metadata_update=None, reset=False):
+        """Submit an update to a dataset entry (and NOT the data or record entries).
+
+        Arguments:
+            source_id (str): The ``source_id`` of the dataset you wish to update.
+                    You must be the owner of the dataset.
+            metadata_update (dict): If you have assembled the dataset metadata yourself,
+                    you can submit it here. This argument supersedes any data
+                    set through other methods.
+                    **Default:** ``None``, to use method-assembled data.
+            reset (bool): If True, will clear the old metadata from the client.
+                    The test flag will be preserved.
+                    If ``False``, the metadata will be preserved.
+                    **Default:** ``False``
+        """
+        if not metadata_update:
+            metadata_update = self.get_submission()
+        # Strip off submission pieces not used in update
+        metadata_update.pop("data_sources", None)
+        metadata_update.pop("test", None)
+        metadata_update.pop("update", None)
+        metadata_update.pop("data_destinations", None)
+        metadata_update.pop("index", None)
+        metadata_update.pop("extraction_config", None)
+        metadata_update.pop("services", None)
+        metadata_update.pop("curation", None)
+        metadata_update.pop("no_extract", None)
+        metadata_update.pop("incremental_update", None)
+
+        # Validate JSON
+        try:
+            json.dumps(metadata_update, allow_nan=False)
+        except Exception as e:
+            return {
+                'source_id': None,
+                'success': False,
+                'error': "The metadata update JSON is invalid: {}".format(repr(e))
+            }
+
+        # Make the request
+        headers = {}
+        self.__authorizer.set_authorization_header(headers)
+        res = requests.post(self.service_loc+self.md_update_route+source_id,
+                            json=metadata_update, headers=headers)
+        # Handle first 401/403 by regenerating auth headers
+        if res.status_code == 401 or res.status_code == 403:
+            self.__authorizer.handle_missing_authorization()
+            self.__authorizer.set_authorization_header(headers)
+            res = requests.post(self.service_loc+self.md_update_route+source_id,
+                                json=metadata_update, headers=headers)
+
+        # Check for success
+        error = None
+        try:
+            json_res = res.json()
+        except Exception:
+            if res.status_code < 300:
+                error = "Error decoding {} response: {}".format(res.status_code, res.content)
+            else:
+                error = ("Error {}. MDF Connect may be experiencing technical"
+                         " difficulties.").format(res.status_code)
+        else:
+            if res.status_code >= 300:
+                error = ("Error {} submitting dataset: {}"
+                         .format(res.status_code, json_res.get("error", json_res)))
+
+        if reset:
+            self.reset_submission()
+
+        # Return results
+        return {
             "success": error is None,
             "error": error,
             "status_code": res.status_code
@@ -865,7 +950,7 @@ class MDFConnectClient:
                 print("Error {}. MDF Connect may be experiencing technical"
                       " difficulties.".format(res.status_code))
         else:
-            if json_res["status"]["active"]:
+            if json_res.get("status", {}).get("active"):
                 active_msg = "This submission is still processing."
             else:
                 active_msg = "This submission is no longer processing."
@@ -873,14 +958,16 @@ class MDFConnectClient:
                 json_res["status_code"] = res.status_code
                 return json_res
             elif res.status_code >= 300:
-                print("Error {} fetching status: {}".format(res.status_code, json_res))
+                print("Error {} fetching status: {}".format(res.status_code,
+                                                            json_res.get("error", json_res)))
             elif short:
                 print("{}: {}".format((source_id or self.source_id), active_msg))
             else:
                 print("\n{}\n{}\n".format(json_res["status"]["status_message"], active_msg))
 
-    def check_all_submissions(self, verbose=False, active=False, raw=False,
-                              _admin_code=None):
+    def check_all_submissions(self, verbose=False, active_only=False, include_tests=True,
+                              newer_than_date=None, older_than_date=None, raw=False,
+                              filters=None, _admin_code=None):
         """Check the status of all of your submissions.
 
         Arguments:
@@ -888,13 +975,41 @@ class MDFConnectClient:
                     When ``True``, will print the full status summary of each submission,
                     as if you called ``check_status()`` on each. Has no effect if raw is ``True``.
                     **Default:** ``False``
-            active (bool): When ``False``, will print the status for all of your submissions.
-                    When ``True``, will only print active submissions.
+            active_only (bool): When ``True``, will only print active submissions.
                     **Default:** ``False``
+            include_tests (bool): When ``False``, will only print non-test submissions.
+                    **Default:** ``True``
+            newer_than_date (datetime or tuple of ints): Exclude submissions made before
+                    this date. Accepts a ``datetime`` object or ``(year, month, day)``
+                    as integers. Comparisons are made in UTC.
+                    **Default:**: ``None``, to set no maximum age.
+            older_than_date: (datetime or tuple of ints): Exclude submissions made after
+                    this date. Accepts a ``datetime`` object or ``(year, month, day)``
+                    as integers. Comparisons are made in UTC.
+                    **Default:**: ``None``, to set no minimum age.
             raw (bool): When ``False``, will print your submissions' summaries.
                     When ``True``, will return the full status results.
                     For direct human consumption, ``False`` is recommended.
                     **Default:** ``False``
+            filters (list of tuples): **Advanced users only**
+                    Filters to apply to the status database scan.
+                    For a submission to be returned, all filters must match.
+                    **Default:** ``None``.
+                    Format: (field, operator, value)
+                        field: The status field to filter on.
+                        operator: The relation of field to value. Valid operators:
+                                ^: Begins with
+                                *: Contains
+                                ==: Equal to (or field does not exist, if value is None)
+                                !=: Not equal to (or field exists, if value is None)
+                                >: Greater than
+                                >=: Greater than or equal to
+                                <: Less than
+                                <=: Less than or equal to
+                                []: Between, inclusive (requires a list of two values)
+                                in: Is one of the values (requires a list of values)
+                                    This operator effectively allows OR-ing '=='
+                   value: The value of the field.
             _admin_code (str): *For MDF Connect administrators only,* a special function code.
                     Valid codes:
 
@@ -904,19 +1019,57 @@ class MDFConnectClient:
                     Only MDF Connect administrators are allowed to use these codes.
                     **Default:** ``None``, the only valid value for non-admins.
 
+        Note about date filtering:
+                Days are compared in UTC, at exactly 0:00 (12:00am). This means that the two dates
+                cannot be the same, as they would filter out all submissions not made at exactly
+                0:00:00 on the chosen date. To see submissions made on a specific date, set the
+                older_than filter one day away from the date in question.
+                For example, to see submissions from Feb 11, 2020, use
+                ``newer_than_date=(2020, 2, 11), older_than_date=(2020, 2, 12)``.
+
         Returns:
             if raw is ``True``, *dict*: The full status results.
         """
+        if filters is None:
+            filters = []
+        if active_only:
+            filters.append(("active", "==", True))
+        if not include_tests:
+            filters.append(("test", "==", False))
+
+        # Date filters
+        if newer_than_date is not None and not isinstance(newer_than_date, datetime):
+            newer_than_date = datetime(*newer_than_date)
+        if older_than_date is not None and not isinstance(older_than_date, datetime):
+            older_than_date = datetime(*older_than_date)
+        # Validate date filters if both present
+        if newer_than_date is not None and older_than_date is not None:
+            # Cannot be the same
+            if newer_than_date == older_than_date:
+                raise ValueError("Date filters cannot be the identical. To see submissions "
+                                 "made on a specific date, set the older_than filter one day "
+                                 "away from the date in question.\nFor example, to see "
+                                 "submissions from Feb 11, 2020, use "
+                                 "'newer_than_date=(2020, 2, 11), older_than_date=(2020, 2, 12)'.")
+            elif newer_than_date > older_than_date:
+                raise ValueError("newer_than_date must be before older_than_date")
+        if newer_than_date:
+            filters.append(("submission_time", ">=", newer_than_date.isoformat("T") + "Z"))
+        if older_than_date:
+            filters.append(("submission_time", "<=", older_than_date.isoformat("T") + "Z"))
+
         headers = {}
         self.__authorizer.set_authorization_header(headers)
-        res = requests.get("{}{}{}".format(self.service_loc, self.all_status_route,
-                                           (_admin_code or "")), headers=headers)
+        body = {
+            "filters": filters
+        }
+        url = self.service_loc + self.all_status_route + (_admin_code or "")
+        res = requests.post(url, headers=headers, json=body)
         # Handle first 401/403 by regenerating auth headers
         if res.status_code == 401 or res.status_code == 403:
             self.__authorizer.handle_missing_authorization()
             self.__authorizer.set_authorization_header(headers)
-            res = requests.get("{}{}{}".format(self.service_loc, self.all_status_route,
-                                               (_admin_code or "")), headers=headers)
+            res = requests.post(url, headers=headers, json=body)
 
         try:
             json_res = res.json()
@@ -935,42 +1088,40 @@ class MDFConnectClient:
         else:
             if raw:
                 json_res["status_code"] = res.status_code
-                json_res["submissions"] = [sub for sub in json_res["submissions"]
-                                           if (not active or sub["active"])]
                 return json_res
             elif res.status_code >= 300:
-                print("Error {} fetching status: {}".format(res.status_code, json_res))
+                print("Error {} fetching status: {}".format(res.status_code,
+                                                            json_res.get("error", json_res)))
             else:
                 if not verbose:
                     print()  # Newline, because non-verbose won't include one
                 for sub in json_res["submissions"]:
-                    if not active or sub["active"]:
-                        if verbose:
-                            # Same message as check_status() with extra spacing
-                            if sub["active"]:
-                                active_msg = "This submission is still processing."
-                            else:
-                                active_msg = "This submission is no longer processing."
-                            print("\n\n", sub["status_message"], active_msg, sep="")
+                    if verbose:
+                        # Same message as check_status() with extra spacing
+                        if sub["active"]:
+                            active_msg = "This submission is still processing."
                         else:
-                            # Decide if submission failed/succeeded/in processing/etc.
-                            if "F" in sub["status_code"]:
-                                status_word = "Failed"
-                            elif "P" in sub["status_code"]:
-                                status_word = "Processing"
-                            elif sub["status_code"][-1] == "S":
-                                status_word = "Succeeded"
-                            elif sub["status_code"][-1] == "X":
-                                status_word = "Cancelled"
-                            elif sub["status_code"][0] == "z":
-                                status_word = "Not started"
-                            elif "R" in sub["status_code"]:
-                                status_word = "Retrying error"
-                            else:
-                                status_word = "Unknown"
-                            print("{}: {} - {}".format(sub["source_id"],
-                                                       ("Processing" if sub["active"]
-                                                        else "Not processing"), status_word))
+                            active_msg = "This submission is no longer processing."
+                        print("\n\n", sub["status_message"], active_msg, sep="")
+                    else:
+                        # Decide if submission failed/succeeded/in processing/etc.
+                        if "F" in sub["status_code"]:
+                            status_word = "Failed"
+                        elif "P" in sub["status_code"]:
+                            status_word = "Processing"
+                        elif sub["status_code"][-1] == "S":
+                            status_word = "Succeeded"
+                        elif sub["status_code"][-1] == "X":
+                            status_word = "Cancelled"
+                        elif sub["status_code"][0] == "z":
+                            status_word = "Not started"
+                        elif "R" in sub["status_code"]:
+                            status_word = "Retrying error"
+                        else:
+                            status_word = "Unknown"
+                        print("{}: {} - {}".format(sub["source_id"],
+                                                   ("Processing" if sub["active"]
+                                                    else "Not processing"), status_word))
 
     # ***********************************************
     # * Curation
