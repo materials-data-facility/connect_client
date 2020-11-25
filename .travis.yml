@@ -1,6 +1,5 @@
 language: python
 python:
-- '3.5'
 - '3.6'
 - '3.7'
 - '3.8'
@@ -22,7 +21,7 @@ after_success:
 notifications:
   email:
     recipients:
-    - jgaff@uchicago.edu
+    - blaiszik@uchicago.edu
     on_success: never
     on_failure: always
   slack:
@@ -32,9 +31,9 @@ notifications:
       secure: PeTw4hgPe/UvQXjmYD7tT+4J1tOZKOHw5sLYegSZtnekKeLpjLZib0eZrAkzE5LFbRoRgXZ9z4Yn+hN3az4Z1GodXYcRrYrvRwe75oZMgxe5TvXpmE1lqv8nCvbDo2LJbkVTdn0fKRRfEl1W62RtYcyh+QwunUudHA9U2zOZLqSt4BeYMTOK4T5XyhZ5T1DYSBO8Dj28OFuemjwGkBMgZ5Z/+GqIJ1wZw2sKHKN+vkKj8NChPEzok+GX0R1CXgqvMMHPNJUx/69hZMuqxZciQICqhAstUw//ssTI6bzGHivbhObE5nlDqmBIPDD8tEG6p/XOOFtHx2a/R6KV+5wjzIs6sLiEz2QAG/qKm20jSHi8j585RqjgpBGC1g0FQ8k75E0oF8ls5unHFnDHPRWnPI0ifZ2qgYIUWdHC6dV4QF06Z1OYRHfOiyiLvuWIlKufKRM6aC84LEXxBS7Lq4MUZ+wKjGVf5EmSeJzYC+NXnBcnkFOx3KnImNDP9JuBwsgrFYRZhpvlwKdmCn1sw+iAuhco+nTKrzq5fK4vglE4zAMr81YgnLrVY3xJrz0G4wbQYvtxcFx84GaV6UiL1hfbuu4aBw3o6kuq5gxEaYg18MvsIZyIbQOpNuqRtQsHknRJSoLPvIEv8Rq6zA2twHI1MJXunjzsc0WaCm2Npt1ZpGk=
 deploy:
   provider: pypi
-  user: jgaff
+  user: __token__
   on:
     tags: true
   distributions: sdist bdist_wheel
   password:
-    secure: j7SC/8c2QLy9zXcLEdbySmOVKE6x/9AzY/kBXIB9oFmZpRzIXg7va7nA07QC3BVQ+y6pNpAdqDGQStCyP+BMYXA/NOyaETAASOUWLX9larbqvS9/GLU87gZiPlhVwaTxaLWf65ge+qMbrqpud/jnlTy1hodrAkQtWj5i8yIwTSINNBfbwQG/iLHy4iHjyvxhs9PWr6Akv+u4EZ7j6JtILw6/JzTZeHKbwe6pFc4sBlt8TfZnhkrixuYazPbCJnWOwHSdO3aYtHCEr9+AT5VYzxJGbwRewCUBiQO8/UIzPG2vWrBTl0f6DoUHOi6p4k7iWkY96E0Fu5uFaWEL+I+kA12pdJp8DE1cSeu3v3tl4BR/QMNIJ8IXCBnJ/TCgprGNsTzO9GFPd0cHDQcqWr8xzw+83tQcXKTHgwf6vkNyw7YC0TPNSVO7OKe4WhDQeQ5TiZMcdXtILaPgLJauQJeSyncLTPgUSr9R/ZmXrrrZCdYizoIurrCuL1GHULnnuHgCxX/uZubbScqDhCq+zZBDOtsuu7iHGMansYXdNo70LZL5MvpPufYmvVvllwTe6Mho8zXcgMLHL21WtTzQ+Qtkj0h+yZHgiWav/zpqHqCuQIPkO06DAlJc1t4KRiqpGLWO+8AWsphmNejOTS4d7CZsnW8Vp6A9DSxuhWN9MPoenfs=
+    secure: jZrSlMKTZ15aVZq49EPTVuDDOvgCXBcWjO+adGd1irjIcyHuZt1DZylP5fz4oONepk2JX1+lEC2aJbEnUC8FclVW+vVTMsFMa/EZA4cProHokBNmF8QU/JwFbDE7u9CwHUsnfuNGUfPuj6T6V2YCW/n3fJZmrycDdarNI1oKxmWo8Q+ZbQ4vfgFq0p1ausRBx4a4E4gm3fzhF2bIh8JEhlBL6C0N0eSBegtT0uGdI7FM1aVgnBh47waPvB4fD8ODm+/PA4EmIAUtm3O2upusrNI82ABAjeIGfS+xSmer0NqnTsSwv+uqHJ3SAeDz3WE1302mYz4WfDW70paAYL50BIzkQoLDOVkPrM8xXR7xAto8w8KfU9d30GSD1+kHLBV3hCx061kKWRQ3iPz90zZwPJe6VuAwE7/9j5kSH+tfuqrLJY/zYGQsLBG1/hg4a68VjR9ojTEXKexjcRf0cLaNYd+ZJjmvw1P0stxO0XG/LfisC+lRguCRn3eac6wYnZegqAyzuVfVlak8VcJdtqjMcMsl+KczLLC7VaO1YHS6YOY4TuwvZG4HO7mR81qWrnD/HtoubVrO7L4l4GNczHUpbyVn5YZqLmsQCZ7uE0NQT4h3ClqXfEhV6ngHMWcII8/Hw4t+c48Pg8n9M1P4sazA5KFSCwMOdJO2iE5mYXmGys4=
