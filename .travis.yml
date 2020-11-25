@@ -12,6 +12,8 @@ env:
 script:
 - flake8 . && travis_wait 50 py.test --nbval-lax
 before_install:
+- openssl aes-256-cbc -K $encrypted_a7c8f759f73f_key -iv $encrypted_a7c8f759f73f_iv
+  -in travis.tar.enc -out travis.tar -d
 - openssl aes-256-cbc -K $encrypted_99dd1c7c40fb_key -iv $encrypted_99dd1c7c40fb_iv
   -in travis.tar.enc -out travis.tar -d
 - tar xvf travis.tar
