@@ -9,7 +9,7 @@ import requests
 from .version import __version__
 
 CONNECT_SERVICE_LOC = "https://api.materialsdatafacility.org"
-CONNECT_DEV_LOC = "https://dev-api.materialsdatafacility.org"
+CONNECT_DEV_LOC = "https://f6avec0img.execute-api.us-east-1.amazonaws.com/test"
 CONNECT_EXTRACT_ROUTE = "/submit"
 CONNECT_STATUS_ROUTE = "/status/"
 CONNECT_ALL_STATUS_ROUTE = "/submissions/"
