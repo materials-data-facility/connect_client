@@ -29,7 +29,7 @@ class MDFConnectClient:
     """The MDF Connect Client is the Python client to easily submit datasets to MDF Connect."""
     __app_name = "MDF_Connect_Client"
     __client_id = "fcb9bf5a-4492-4e25-970f-510b69abc964"
-    __login_services = ["mdf_connect"]
+    __login_services = ["mdf_connect", "mdf_connect_dev"]
     __allowed_authorizers = [
         globus_sdk.AccessTokenAuthorizer,
         globus_sdk.RefreshTokenAuthorizer,
@@ -77,13 +77,14 @@ class MDFConnectClient:
         self.md_update_route = CONNECT_MD_UPDATE_ROUTE
 
         self.reset_submission()
+        login_service = "mdf_connect" if self.service_loc == CONNECT_SERVICE_LOC else "mdf_connect_dev"
 
         if any([isinstance(authorizer, allowed) for allowed in self.__allowed_authorizers]):
             self.__authorizer = authorizer
         else:
             self.__authorizer = mdf_toolbox.login(services=self.__login_services,
                                                   client_id=self.__client_id,
-                                                  app_name=self.__app_name).get("mdf_connect")
+                                                  app_name=self.__app_name).get(login_service)
         if not self.__authorizer:
             raise ValueError("Unable to authenticate")
 
