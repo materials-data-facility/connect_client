@@ -667,6 +667,8 @@ class MDFConnectClient:
         }
         if self.mdf:
             submission["mdf"] = self.mdf
+        else:
+            submission["mdf"] = {}
         if self.mrr:
             submission["mrr"] = self.mrr
         if self.custom:
