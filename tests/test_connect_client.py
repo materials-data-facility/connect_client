@@ -1,26 +1,47 @@
 from datetime import datetime
+import os
 
 from mdf_toolbox import insensitive_comparison
+import mdf_toolbox
 import pytest
 
 from mdf_connect_client import MDFConnectClient
 from mdf_connect_client.mdfcc import CONNECT_SERVICE_LOC, CONNECT_DEV_LOC
 
+#github specific declarations
+client_id = os.getenv('CLIENT_ID')
+client_secret = os.getenv('CLIENT_SECRET')
+
+services= [
+            "data_mdf",
+            "mdf_connect",
+            "search",
+            "petrel",
+            "transfer",
+            "openid"]
+
+res_cred = mdf_toolbox.confidential_login(client_id=client_id,
+                                        client_secret=client_secret,
+                                        services=services, make_clients=True)
+
+authorizer = res_cred['mdf_connect']
+
+
 
 def test_service_loc():
-    mdf1 = MDFConnectClient()
+    mdf1 = MDFConnectClient(authorizer=authorizer)
     assert mdf1.service_loc == CONNECT_SERVICE_LOC
-    mdf2 = MDFConnectClient(service_instance="prod")
+    mdf2 = MDFConnectClient(service_instance="prod", authorizer=authorizer)
     assert mdf2.service_loc == CONNECT_SERVICE_LOC
-    mdf3 = MDFConnectClient(service_instance="dev")
+    mdf3 = MDFConnectClient(service_instance="dev", authorizer=authorizer)
     assert mdf3.service_loc == CONNECT_DEV_LOC
 
     with pytest.raises(ValueError):
-        MDFConnectClient(service_instance="foobar")
+        MDFConnectClient(service_instance="foobar", authorizer=authorizer)
 
 
 def test_create_dc_block():
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     # Full test, no lists
     mdf.create_dc_block(
         title="Connect Title",
@@ -172,7 +193,7 @@ def test_create_dc_block():
 
 
 def test_acl():
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     mdf.set_base_acl("12345abc")
     assert mdf.mdf == {
         "acl": ["12345abc"]
@@ -199,7 +220,7 @@ def test_acl():
 
 
 def test_source_name():
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     mdf.set_source_name("foo")
     assert mdf.mdf == {
         "source_name": "foo"
@@ -209,7 +230,7 @@ def test_source_name():
 
 
 def test_organizations():
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     mdf.add_organization("ANL")
     mdf.add_organization(["ORNL", "NREL"])
     assert mdf.mdf["organizations"] == ["ANL", "ORNL", "NREL"]
@@ -222,13 +243,13 @@ def test_organizations():
 
 def test_create_mrr_block():
     # TODO: Update after helper is helpful
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     mdf.create_mrr_block({"a": "b"})
     assert mdf.mrr == {"a": "b"}
 
 
 def test_set_custom_block():
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     mdf.set_custom_block({"foo": "bar"})
     assert mdf.custom == {"foo": "bar"}
     # OOR floats not allowed
@@ -241,7 +262,7 @@ def test_set_custom_block():
 
 
 def test_set_custom_descriptions():
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     mdf.set_custom_block({"foo": "bar"})
     mdf.set_custom_descriptions({"foo": "This is a foo"})
     assert mdf.custom == {
@@ -258,7 +279,7 @@ def test_set_custom_descriptions():
 
 
 def test_set_project_block():
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     mdf.set_project_block("proj1", {"foo": "bar"})
     assert mdf.projects == {"proj1": {"foo": "bar"}}
     # OOR floats not allowed
@@ -271,7 +292,7 @@ def test_set_project_block():
 
 
 def test_data():
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     # data_sources
     mdf.add_data_source("https://example.com/path/data.zip")
     assert mdf.data_sources == ["https://example.com/path/data.zip"]
@@ -296,7 +317,7 @@ def test_data():
 
 
 def test_index():
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     # Mapping only
     mdf.add_index("json", mapping={"materials.composition": "my_json.data.stuff.comp"})
     assert mdf.index == {
@@ -344,7 +365,7 @@ def test_index():
 
 
 def test_extraction_config():
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     mdf.set_extraction_config({"group_by_dir": True})
     assert mdf.extraction_config == {"group_by_dir": True}
     # OOR floats not allowed
@@ -357,7 +378,7 @@ def test_extraction_config():
 
 
 def test_services():
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     # No parameters
     mdf.add_service("citrine")
     assert mdf.services == {
@@ -385,7 +406,7 @@ def test_services():
 
 
 def test_tags():
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     mdf.add_tag("foo")
     assert mdf.tags == ["foo"]
     mdf.add_tag(["bar", "baz"])
@@ -395,7 +416,7 @@ def test_tags():
 
 
 def test_curation():
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     assert mdf.curation is False
     mdf.set_curation(True)
     assert mdf.curation is True
@@ -404,7 +425,7 @@ def test_curation():
 
 
 def test_set_test():
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     assert mdf.test is False
     mdf.set_test(True)
     assert mdf.test is True
@@ -415,7 +436,7 @@ def test_set_test():
 
 
 def test_passthrough():
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     assert mdf.no_extract is False
     mdf.set_passthrough(True)
     assert mdf.no_extract is True
@@ -424,7 +445,7 @@ def test_passthrough():
 
 
 def test_submission():
-    mdf = MDFConnectClient()
+    mdf = MDFConnectClient(authorizer=authorizer)
     assert insensitive_comparison(mdf.get_submission(),
                                   {"dc": {},
                                    "data_sources": [],
@@ -457,16 +478,16 @@ def test_submission():
                                    "update": False})
 
 
-def test_submit_dataset():
-    # TODO
-    pass
+# def test_submit_dataset():
+#     # TODO
+#     pass
 
 
-def test_check_status():
-    # TODO
-    pass
+# def test_check_status():
+#     # TODO
+#     pass
 
 
-def test_check_all_submissions():
-    # TODO
-    pass
+# def test_check_all_submissions():
+#     # TODO
+#     pass
