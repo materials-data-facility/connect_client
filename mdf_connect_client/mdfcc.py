@@ -418,6 +418,22 @@ class MDFConnectClient:
         """Clear all added organizations from the submission."""
         self.mdf.pop("organizations", None)
 
+    def add_links(self, links):
+        """Add links to a dataset.
+
+        Arguments:
+            link (str or list of str): The link(s) to add.
+                   Should be of the form {"type":str, "doi":str, "url":str, "description":str, "bibtex":str}
+        """
+        if not isinstance(links, list):
+            links = [links]
+        if not self.mdf.get("links"):
+            self.mdf["links"] = links
+
+    def clear_links(self):
+        """Clear all tags added so far to your dataset."""
+        self.links = []
+
     # ***********************************************
     # * Optional inputs
     # ***********************************************
@@ -669,6 +685,8 @@ class MDFConnectClient:
             submission["services"] = self.services
         if self.tags:
             submission["tags"] = self.tags
+        if self.links:
+            submission["links"] = self.links
         if self.curation:
             submission["curation"] = self.curation
         if self.no_extract:
@@ -711,6 +729,7 @@ class MDFConnectClient:
         self.clear_index()
         self.clear_services()
         self.clear_tags()
+        self.clear_links()
         self.clear_dataset_acl()
 
         self.source_id = None
@@ -1182,10 +1201,10 @@ class MDFConnectClient:
             elif summary:
                 task = json_res["curation_task"]
                 print(self.curation_summary_template.format(
-                                source_id=task["source_id"],
-                                submitter=task["submission_info"]["submitter"],
-                                waiting_since=task["curation_start_date"],
-                                extraction_summary=task["extraction_summary"]))
+                    source_id=task["source_id"],
+                    submitter=task["submission_info"]["submitter"],
+                    waiting_since=task["curation_start_date"],
+                    extraction_summary=task["extraction_summary"]))
             else:
                 task = json_res["curation_task"]
                 # TODO: Are the dataset and record entries human-useful?
@@ -1257,10 +1276,10 @@ class MDFConnectClient:
                 print()  # Newline for spacing
                 for task in json_res["curation_tasks"]:
                     print(self.curation_summary_template.format(
-                                    source_id=task["source_id"],
-                                    submitter=task["submission_info"]["submitter"],
-                                    waiting_since=task["curation_start_date"],
-                                    extraction_summary=task["extraction_summary"]))
+                        source_id=task["source_id"],
+                        submitter=task["submission_info"]["submitter"],
+                        waiting_since=task["curation_start_date"],
+                        extraction_summary=task["extraction_summary"]))
             else:
                 for task in json_res["curation_tasks"]:
                     # TODO: Are the dataset and record entries human-useful?
