@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 20
     strategy:
       matrix:
-        python-version: [3.7, 3.8, 3.9]
+        python-version: [3.9]
 
     env:
       CLIENT_ID: ${{ secrets.CLIENT_ID }}
@@ -34,7 +34,7 @@ jobs:
           pip install pytest-cov
           pip install -e .
           pip install -r test_requirements.txt
-          pip install globus-sdk==2.0.1
+          pip install globus-sdk==1.11.0
 
       - name: Test with pytest
         run: |
