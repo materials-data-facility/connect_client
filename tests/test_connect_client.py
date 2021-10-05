@@ -12,6 +12,7 @@ from mdf_connect_client.mdfcc import CONNECT_SERVICE_LOC, CONNECT_DEV_LOC
 client_id = os.getenv('CLIENT_ID')
 client_secret = os.getenv('CLIENT_SECRET')
 
+
 services= [
             "data_mdf",
             "mdf_connect",
@@ -20,9 +21,13 @@ services= [
             "transfer",
             "openid"]
 
+print(services)
+
 res_cred = mdf_toolbox.confidential_login(client_id=client_id,
                                         client_secret=client_secret,
                                         services=services, make_clients=True)
+
+print(res_cred)
 
 authorizer = res_cred['mdf_connect']
 
