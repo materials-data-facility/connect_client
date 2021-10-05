@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 5
     strategy:
       matrix:
-        python-version: [3.7, 3.8, 3.9]
+        python-version: [3.9]
 
     env:
       CLIENT_ID: ${{ secrets.CLIENT_ID }}
@@ -33,7 +33,9 @@ jobs:
           pip install flake8 pytest
           pip install pytest-cov
           pip install -e .
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install -r test_requirements.txt
+          pip install globus-sdk==1.11.0
+          pip install globus-nexus-client==0.3.0
 
       - name: Test with pytest
         run: |
