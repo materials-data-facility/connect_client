@@ -34,7 +34,8 @@ jobs:
           pip install pytest-cov
           pip install -e .
           pip install -r test_requirements.txt
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip uninstall globus-sdk
+          pip install globus-sdk==2.0.1
 
       - name: Test with pytest
         run: |
