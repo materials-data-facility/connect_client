@@ -528,7 +528,7 @@ class MDFConnectClient:
         """Remove a previously set source_name."""
         self.mdf.pop("source_name", None)
 
-    def set_incremental_update(self, source_id):
+    def set_update_metadata_only(self, meta_only):
         """Make this submission an incremental update of a previous submission.
         Incremental updates use the same submission metadata, except for whatever you
         specify in the new submission. For example, if you submit an incremental update
@@ -539,9 +539,9 @@ class MDFConnectClient:
             You must still set ``update=True`` when submitting an incremental update.
 
         Arguments:
-            source_id (str): The ``source_id`` of the previous submission to update.
+            meta_only (boolean): The ``source_id`` of the previous submission to update.
         """
-        self.incremental_update = source_id
+        self.update_meta_only = meta_only
 
     def add_data_destination(self, data_destination):
         """Add a data destination to your submission.
@@ -695,8 +695,8 @@ class MDFConnectClient:
             submission["no_extract"] = self.no_extract
         if self.dataset_acl:
             submission["dataset_acl"] = self.dataset_acl
-        if self.incremental_update:
-            submission["incremental_update"] = self.incremental_update
+        if self.update_meta_only:
+            submission["update_meta_only"] = self.update_meta_only
         return submission
 
     def reset_submission(self):
@@ -723,7 +723,7 @@ class MDFConnectClient:
         self.set_extraction_config({})
         self.set_curation(False)
         self.set_passthrough(False)
-        self.set_incremental_update(False)
+        self.set_update_metadata_only(False)
 
         self.clear_data_sources()
         self.clear_external_uri()
@@ -784,7 +784,7 @@ class MDFConnectClient:
 
         # Check for required data
         if ((not submission["dc"] or not submission["data_sources"])
-                and not submission["incremental_update"]):
+                and not submission["update_meta_only"]):
             return {
                 'source_id': None,
                 'success': False,
@@ -869,7 +869,7 @@ class MDFConnectClient:
         metadata_update.pop("services", None)
         metadata_update.pop("curation", None)
         metadata_update.pop("no_extract", None)
-        metadata_update.pop("incremental_update", None)
+        metadata_update.pop("update_meta_only", None)
 
         # Validate JSON
         try:
