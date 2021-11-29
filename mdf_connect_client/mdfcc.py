@@ -528,7 +528,7 @@ class MDFConnectClient:
         """Remove a previously set source_name."""
         self.mdf.pop("source_name", None)
 
-    def set_update_metadata_only(self, meta_only):
+    def set_update_metadata_only(self, metadata_only):
         """Make this submission an update on the metadata only of a previous submission.
         Incremental updates use the same submission metadata, except for whatever you
         specify in the new submission. For example, if you submit an metadata only update
@@ -539,9 +539,9 @@ class MDFConnectClient:
             You must still set ``update=True`` when submitting an incremental update.
 
         Arguments:
-            meta_only (boolean): If true then flow performs an update on the metadata only
+            metadata_only (boolean): If true then flow performs an update on the metadata only
         """
-        self.update_meta_only = meta_only
+        self.update_metadata_only = metadata_only
 
     def add_data_destination(self, data_destination):
         """Add a data destination to your submission.
@@ -695,7 +695,7 @@ class MDFConnectClient:
             submission["no_extract"] = self.no_extract
         if self.dataset_acl:
             submission["dataset_acl"] = self.dataset_acl
-        submission["update_meta_only"] = self.update_meta_only
+        submission["update_metadata_only"] = self.update_metadata_only
         return submission
 
     def reset_submission(self):
@@ -783,7 +783,7 @@ class MDFConnectClient:
 
         # Check for required data
         if ((not submission["dc"] or not submission["data_sources"])
-                and not submission["update_meta_only"]):
+                and not submission["update_metadata_only"]):
             return {
                 'source_id': None,
                 'success': False,
@@ -868,7 +868,7 @@ class MDFConnectClient:
         metadata_update.pop("services", None)
         metadata_update.pop("curation", None)
         metadata_update.pop("no_extract", None)
-        metadata_update.pop("update_meta_only", None)
+        metadata_update.pop("update_metadata_only", None)
 
         # Validate JSON
         try:
