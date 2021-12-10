@@ -800,13 +800,13 @@ class MDFConnectClient:
 
         # Make the request
         headers = {}
-        self.__authorizer.set_authorization_header(headers)
+        self.__authorizer.get_authorization_header()
         res = requests.post(self.service_loc+self.extract_route,
                             json=submission, headers=headers)
         # Handle first 401/403 by regenerating auth headers
         if res.status_code == 401 or res.status_code == 403:
             self.__authorizer.handle_missing_authorization()
-            self.__authorizer.set_authorization_header(headers)
+            headers["Authorization"] = self.__authorizer.get_authorization_header()
             res = requests.post(self.service_loc+self.extract_route,
                                 json=submission, headers=headers)
 
@@ -881,13 +881,13 @@ class MDFConnectClient:
 
         # Make the request
         headers = {}
-        self.__authorizer.set_authorization_header(headers)
+        headers["Authorization"] = self.__authorizer.get_authorization_header()
         res = requests.post(self.service_loc+self.md_update_route+source_id,
                             json=metadata_update, headers=headers)
         # Handle first 401/403 by regenerating auth headers
         if res.status_code == 401 or res.status_code == 403:
             self.__authorizer.handle_missing_authorization()
-            self.__authorizer.set_authorization_header(headers)
+            headers["Authorization"] = self.__authorizer.get_authorization_header()
             res = requests.post(self.service_loc+self.md_update_route+source_id,
                                 json=metadata_update, headers=headers)
 
@@ -945,13 +945,13 @@ class MDFConnectClient:
             print("Error: No dataset submitted")
             return None
         headers = {}
-        self.__authorizer.set_authorization_header(headers)
+        headers["Authorization"] = self.__authorizer.get_authorization_header()
         res = requests.get(self.service_loc+self.status_route+(source_id or self.source_id),
                            headers=headers)
         # Handle first 401/403 by regenerating auth headers
         if res.status_code == 401 or res.status_code == 403:
             self.__authorizer.handle_missing_authorization()
-            self.__authorizer.set_authorization_header(headers)
+            headers["Authorization"] = self.__authorizer.get_authorization_header()
             res = requests.get(self.service_loc+self.status_route+(source_id or self.source_id),
                                headers=headers)
 
@@ -1079,7 +1079,7 @@ class MDFConnectClient:
             filters.append(("submission_time", "<=", older_than_date.isoformat("T") + "Z"))
 
         headers = {}
-        self.__authorizer.set_authorization_header(headers)
+        headers["Authorization"] = self.__authorizer.get_authorization_header()
         body = {
             "filters": filters
         }
@@ -1088,7 +1088,7 @@ class MDFConnectClient:
         # Handle first 401/403 by regenerating auth headers
         if res.status_code == 401 or res.status_code == 403:
             self.__authorizer.handle_missing_authorization()
-            self.__authorizer.set_authorization_header(headers)
+            headers["Authorization"] = self.__authorizer.get_authorization_header()
             res = requests.post(url, headers=headers, json=body)
 
         try:
@@ -1169,12 +1169,12 @@ class MDFConnectClient:
             if raw is ``True``, *dict*: The full task results.
         """
         headers = {}
-        self.__authorizer.set_authorization_header(headers)
+        headers["Authorization"] = self.__authorizer.get_authorization_header()
         res = requests.get(self.service_loc+self.curation_route+source_id, headers=headers)
         # Handle first 401/403 by regenerating auth headers
         if res.status_code == 401 or res.status_code == 403:
             self.__authorizer.handle_missing_authorization()
-            self.__authorizer.set_authorization_header(headers)
+            headers["Authorization"] = self.__authorizer.get_authorization_header()
             res = requests.get(self.service_loc+self.curation_route+source_id, headers=headers)
 
         try:
@@ -1239,13 +1239,13 @@ class MDFConnectClient:
             if raw is ``True``, *dict*: The full task results.
         """
         headers = {}
-        self.__authorizer.set_authorization_header(headers)
+        headers["Authorization"] = self.__authorizer.get_authorization_header()
         res = requests.get(self.service_loc+self.all_curation_route+(_admin_code or ""),
                            headers=headers)
         # Handle first 401/403 by regenerating auth headers
         if res.status_code == 401 or res.status_code == 403:
             self.__authorizer.handle_missing_authorization()
-            self.__authorizer.set_authorization_header(headers)
+            headers["Authorization"] = self.__authorizer.get_authorization_header()
             res = requests.get(self.service_loc+self.all_curation_route+(_admin_code or ""),
                                headers=headers)
         try:
@@ -1383,13 +1383,13 @@ class MDFConnectClient:
             "reason": reason
         }
         headers = {}
-        self.__authorizer.set_authorization_header(headers)
+        headers["Authorization"] = self.__authorizer.get_authorization_header()
         res = requests.post(self.service_loc+self.curation_route+source_id, headers=headers,
                             json=command)
         # Handle first 401/403 by regenerating auth headers
         if res.status_code == 401 or res.status_code == 403:
             self.__authorizer.handle_missing_authorization()
-            self.__authorizer.set_authorization_header(headers)
+            headers["Authorization"] = self.__authorizer.get_authorization_header()
             res = requests.get(self.service_loc+self.curation_route+source_id, headers=headers,
                                json=command)
 
