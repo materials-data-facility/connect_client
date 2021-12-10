@@ -800,7 +800,7 @@ class MDFConnectClient:
 
         # Make the request
         headers = {}
-        self.__authorizer.set_authorization_header(headers)
+        self.__authorizer.get_authorization_header(headers)
         res = requests.post(self.service_loc+self.extract_route,
                             json=submission, headers=headers)
         # Handle first 401/403 by regenerating auth headers
