@@ -399,24 +399,19 @@ class MDFConnectClient:
         """
         self.test = test
 
-    def add_organization(self, organization):
-        """Add your dataset to an organization.
+    def set_organization(self, organization):
+        """Set the organization that governs the dataset.
 
         Arguments:
-            organization (str or list of str): The organization(s) to add.
+            organization (str): The organization to add.
                     If the organization is not registered with MDF, it will be discarded.
-                    Parent organizations will be added automatically.
         """
-        if not isinstance(organization, list):
-            organization = [organization]
-        if not self.mdf.get("organizations"):
-            self.mdf["organizations"] = organization
-        else:
-            self.mdf["organizations"].extend(organization)
 
-    def clear_organizations(self):
-        """Clear all added organizations from the submission."""
-        self.mdf.pop("organizations", None)
+        self.mdf["organization"] = organization
+
+    def clear_organization(self):
+        """Clear the added organizations from the submission."""
+        self.mdf.pop("organization", None)
 
     def add_links(self, links):
         """Add links to a dataset.
