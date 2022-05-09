@@ -12,22 +12,12 @@ from mdf_connect_client.mdfcc import CONNECT_SERVICE_LOC, CONNECT_DEV_LOC
 client_id = os.getenv('CLIENT_ID')
 client_secret = os.getenv('CLIENT_SECRET')
 
-services= [
-            "data_mdf",
-            "mdf_connect",
-            "search",
-            "petrel",
-            "transfer",
-            "openid"]
-
-#github specific declarations
-client_id = os.getenv('CLIENT_ID')
-client_secret = os.getenv('CLIENT_SECRET')
-
 auths = mdf_toolbox.confidential_login(client_id=client_id,
                                         client_secret=client_secret,
                                         services=["mdf_connect", "mdf_connect_dev"],
                                         make_clients=True)
+
+print(auths)
 
 def test_service_loc():
     mdf1 = MDFConnectClient(authorizer=auths['mdf_connect'])
@@ -432,7 +422,7 @@ def test_set_test():
     assert mdf.test is True
     mdf.set_test(False)
     assert mdf.test is False
-    mdf2 = MDFConnectClient(test=True)
+    mdf2 = MDFConnectClient(test=True, authorizer=auths['mdf_connect'])
     assert mdf2.test is True
 
 
