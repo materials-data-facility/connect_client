@@ -537,6 +537,16 @@ class MDFConnectClient:
             metadata_only (boolean): If true then flow performs an update on the metadata only
         """
         self.update_metadata_only = metadata_only
+    
+    def set_mint_doi(self, mint_doi):
+        """Tells this submission to mint a DOI. Must be submitting as an organization 
+            which allows DOIs to be minted
+
+        Arguments:
+            mint_doi (boolean): If true then flow mints DOI
+        """
+        self.mint_doi = mint_doi
+        
 
     def add_data_destination(self, data_destination):
         """Add a data destination to your submission.
@@ -691,6 +701,7 @@ class MDFConnectClient:
         if self.dataset_acl:
             submission["dataset_acl"] = self.dataset_acl
         submission["update_metadata_only"] = self.update_metadata_only
+        submission["mint_doi"] = self.mint_doi
         return submission
 
     def reset_submission(self):
@@ -718,6 +729,7 @@ class MDFConnectClient:
         self.set_curation(False)
         self.set_passthrough(False)
         self.set_update_metadata_only(False)
+        self.set_mint_doi(False)
 
         self.clear_data_sources()
         self.clear_external_uri()
@@ -864,6 +876,7 @@ class MDFConnectClient:
         metadata_update.pop("curation", None)
         metadata_update.pop("no_extract", None)
         metadata_update.pop("update_metadata_only", None)
+        metadata_update.pop("mint_doi", None)
 
         # Validate JSON
         try:
