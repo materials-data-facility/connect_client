@@ -19,7 +19,7 @@ pip install -e .
 ```
 
 # Documentation and examples
-Documentation is available on [Read the Docs](https://mdf-connect-client.readthedocs.io/) and [GitHub](https://github.com/materials-data-facility/connect_client/tree/master/docs/). Examples and tutorials are provided as Jupyter notebooks, which can optionally be run interactively with [Jupyter](http://jupyter.org/).
+Documentation is available on [Read the Docs](https://mdf-connect-client.readthedocs.io/) and [GitHub](https://github.com/materials-data-facility/connect_client/tree/master/docs/). [Examples and tutorials](https://github.com/materials-data-facility/connect_client/tree/master/docs/tutorials) are provided as Jupyter notebooks, which can optionally be run interactively with [Jupyter](http://jupyter.org/).
 
 
 # Requirements
