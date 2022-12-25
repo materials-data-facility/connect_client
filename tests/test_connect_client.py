@@ -1,5 +1,11 @@
 from datetime import datetime
+from filecmp import cmp
+from math import floor
+import json
 import os
+import numpy as np
+import pandas as pd
+import requests
 
 from mdf_toolbox import insensitive_comparison
 import mdf_toolbox
@@ -13,9 +19,9 @@ client_id = os.getenv('CLIENT_ID')
 client_secret = os.getenv('CLIENT_SECRET')
 
 auths = mdf_toolbox.confidential_login(client_id=client_id,
-                                        client_secret=client_secret,
-                                        services=["mdf_connect", "mdf_connect_dev"],
-                                        make_clients=True)
+                                       client_secret=client_secret,
+                                       services=["mdf_connect", "mdf_connect_dev"],
+                                       make_clients=True)
 
 print(auths)
 
@@ -467,6 +473,56 @@ def test_submission():
                                    "data_sources": [],
                                    "test": True,
                                    "update": False})
+
+
+def test_https_upload():
+    """Unit test: Test the _upload_to_endpoint() HTTPS functionality on its own, without publishing to MDF
+    """
+    endpoint_id = "82f1b5c6-6e9b-11e5-ba47-22000b92c6ec"  # NCSA endpoint
+    dest_parent = "/tmp"
+    dest_child = f"test_{floor(datetime.now().timestamp())}"
+    local_path = "./data/https_test"
+    filename = "test_data.json"
+
+    mdf = MDFConnectClient(confidential=True)
+    # create test JSON to upload (if it doesn't already exist)
+    _write_test_data(local_path, filename)
+    # upload via HTTPS to NCSA endpoint
+    globus_data_source, _ = mdf.upload_to_endpoint(local_path, endpoint_id, dest_parent=dest_parent,
+                                                   dest_child=dest_child)
+
+    expected_data_source = f"https://app.globus.org/file-manager?origin_id=" \
+           f"82f1b5c6-6e9b-11e5-ba47-22000b92c6ec&origin_path=%2Ftmp%2F{dest_child}"
+    # confirm data source link was created properly, with correct folders
+    assert globus_data_source == expected_data_source
+
+    mdf_url = f"https://data.materialsdatafacility.org/tmp/{dest_child}/{filename}"
+    response = requests.get(mdf_url)
+    # check that we get a valid response back (note that a 200 could be a UI error, returned as HTML)
+    assert response.status_code == 200
+    # check that contents of response are as expected
+    tmp_file = "./data/tmp_data.json"
+    with open(tmp_file, "wb") as fl:
+        fl.write(response.content)
+    assert cmp(tmp_file, os.path.join(local_path, filename))
+
+    # delete ACL rule for user
+    # if rule_id is not None:
+    #     res = f.transfer_client.delete_endpoint_acl_rule(endpoint_id, rule_id)
+
+
+def _write_test_data(dest_path="./data/https_test", filename="test_data.json"):
+    # Create random JSON data
+    data = pd.DataFrame(np.random.rand(100, 4), columns=list('ABCD'))
+    res = data.to_json(orient="records")
+
+    # Make data directory
+    os.makedirs(dest_path, exist_ok=True)
+    data_filepath = os.path.join(dest_path, filename)
+
+    # Write data to JSON file
+    with open(data_filepath, "w+") as f:
+        json.dump(res, f, indent=4)
 
 
 # def test_submit_dataset():
