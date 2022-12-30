@@ -46,7 +46,7 @@ class MDFConnectClient:
         globus_sdk.NullAuthorizer
     ]
 
-    def __init__(self, test=False, service_instance=None, authorizer=None, confidential=False):
+    def __init__(self, test=False, service_instance=None, authorizer=None, confidential=False, client_secret=None):
         """Create an MDF Connect Client.
 
         Arguments:
@@ -65,6 +65,9 @@ class MDFConnectClient:
             confidential (bool): When ``True``, log in to Globus services as a confidential client
                     (a client with its own login information, i.e. NOT a human's account).
                     **Default:** ``False``, to run the standard authentication flow.
+            client_secret (str): Client secret to use when performing a confidential login.
+                    Required when performing a confidential login.
+                    **Default:** ``None``, because it is unnecessary otherwise.
 
         Returns:
             *MDFConnectClient*: An initialized, authenticated MDF Connect Client.
@@ -94,10 +97,17 @@ class MDFConnectClient:
         if any([isinstance(authorizer, allowed) for allowed in self.__allowed_authorizers]):
             self.__authorizer = authorizer
         else:
-            perform_login = mdf_toolbox.confidential_login if confidential else mdf_toolbox.login
-            self.__auths = perform_login(services=self.__login_services+FILE_UPLOAD_SERVICES,
-                                         client_id=self.__client_id,
-                                         app_name=self.__app_name)
+            perform_login = mdf_toolbox.login
+            login_kwargs = {"services": self.__login_services+FILE_UPLOAD_SERVICES,
+                            "client_id": self.__client_id,
+                            "app_name": self.__app_name}
+            if confidential:
+                if client_secret is None:
+                    raise ValueError(f"Unable to perform confidential login without client_secret")
+                perform_login = mdf_toolbox.confidential_login
+                login_kwargs["client_secret"] = client_secret
+                del login_kwargs["app_name"]
+            self.__auths = perform_login(**login_kwargs)
             self.__authorizer = self.__auths.get(login_service)
         if not self.__authorizer:
             raise ValueError("Unable to authenticate")
