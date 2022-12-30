@@ -484,7 +484,7 @@ def test_https_upload():
     local_path = "./data/https_test"
     filename = "test_data.json"
 
-    mdf = MDFConnectClient(confidential=True)
+    mdf = MDFConnectClient(confidential=True, client_secret=client_secret)
     # create test JSON to upload (if it doesn't already exist)
     _write_test_data(local_path, filename)
     # upload via HTTPS to NCSA endpoint
