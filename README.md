@@ -1,5 +1,7 @@
 # MDF Connect Client
-[![PyPI](https://img.shields.io/pypi/v/mdf_connect_client.svg)](https://pypi.python.org/pypi/mdf-connect-client) [![Build Status](https://travis-ci.org/materials-data-facility/connect_client.svg?branch=master)](https://travis-ci.org/materials-data-facility/connect_client) [![Coverage Status](https://coveralls.io/repos/github/materials-data-facility/connect_client/badge.svg?branch=master)](https://coveralls.io/github/materials-data-facility/connect_client?branch=master) [![Read the Docs](https://readthedocs.org/projects/mdf-connect-client/badge/?version=master)](http://mdf-connect-client.readthedocs.io/en/master/)
+[![PyPI](https://img.shields.io/pypi/v/mdf_connect_client.svg)](https://pypi.python.org/pypi/mdf-connect-client) 
+[![Coverage Status](https://coveralls.io/repos/github/materials-data-facility/connect_client/badge.svg?branch=master)](https://coveralls.io/github/materials-data-facility/connect_client?branch=master)
+![GHA](https://github.com/materials-data-facility/connect_client/actions/workflows/testing-work.yml/badge.svg)
 
 The MDF Connect Client is the Python client to easily submit datasets to MDF Connect.
 
@@ -17,7 +19,7 @@ pip install -e .
 ```
 
 # Documentation and examples
-Documentation is available on [Read the Docs](https://mdf-connect-client.readthedocs.io/) and [GitHub](https://github.com/materials-data-facility/connect_client/tree/master/docs/). Examples and tutorials are provided as Jupyter notebooks, which can optionally be run interactively with [Jupyter](http://jupyter.org/).
+Documentation is available on [Read the Docs](https://mdf-connect-client.readthedocs.io/) and [GitHub](https://github.com/materials-data-facility/connect_client/tree/master/docs/). [Examples and tutorials](https://github.com/materials-data-facility/connect_client/tree/master/docs/tutorials) are provided as Jupyter notebooks, which can optionally be run interactively with [Jupyter](http://jupyter.org/).
 
 
 # Requirements
