@@ -8,8 +8,9 @@ import requests
 
 from .version import __version__
 
-CONNECT_SERVICE_LOC = "https://publish.materialsdatafacility.org"
-CONNECT_DEV_LOC = "https://publish-dev.materialsdatafacility.org"
+CONNECT_SERVICE_LOC = "https://publish-prod.materialsdatafacility.org"
+CONNECT_DEV_LOC = "https://6oqmi1rtp2.execute-api.us-east-1.amazonaws.com/test"
+
 CONNECT_EXTRACT_ROUTE = "/submit"
 CONNECT_STATUS_ROUTE = "/status/"
 CONNECT_ALL_STATUS_ROUTE = "/submissions/"
