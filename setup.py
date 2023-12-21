@@ -15,7 +15,7 @@ setup(
     long_description=("The MDF Connect Client is the Python client to easily submit"
                       " datasets to MDF Connect."),
     install_requires=[
-        "mdf-toolbox==0.6.1-alpha.1",
+        "mdf-toolbox==0.7.0-rc.1",
         "nameparser>=1.0.4",
         "requests>=2.18.4"
     ],
