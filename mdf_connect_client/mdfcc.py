@@ -967,16 +967,16 @@ class MDFConnectClient:
                 print("Error {}. MDF Connect may be experiencing technical"
                       " difficulties.".format(res.status_code))
         else:
-            if "status" not in json_res['flow_status']:
+            if 'status' not in json_res['flow_status']:
                 print("Error: No status found for this submission.")
                 return json_res
 
-            if json_res["status"] == 'ACTIVE':
+            if json_res['flow_status']['status'] == 'ACTIVE':
                 active_msg = "This submission is still processing."
             else:
                 active_msg = "This submission is no longer processing."
             if raw:
-                json_res["status_code"] = res.status_code
+                json_res['flow_status']['status_code'] = res.status_code
                 return json_res
             elif res.status_code >= 300:
                 print("Error {} fetching status: {}".format(res.status_code,
