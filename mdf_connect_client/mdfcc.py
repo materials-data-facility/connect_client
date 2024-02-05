@@ -8,11 +8,12 @@ import requests
 
 from .version import __version__
 
-CONNECT_SERVICE_LOC = "https://api.materialsdatafacility.org"
-CONNECT_DEV_LOC = "https://f6avec0img.execute-api.us-east-1.amazonaws.com/test"
+CONNECT_SERVICE_LOC = "https://publish-prod.materialsdatafacility.org"
+CONNECT_DEV_LOC = "https://publish-dev.materialsdatafacility.org"
+
 CONNECT_EXTRACT_ROUTE = "/submit"
 CONNECT_STATUS_ROUTE = "/status/"
-CONNECT_ALL_STATUS_ROUTE = "/submissions/"
+CONNECT_ALL_STATUS_ROUTE = "/submissions"
 CONNECT_CURATION_ROUTE = "/curate/"
 CONNECT_ALL_CURATION_ROUTE = "/curation/"
 CONNECT_MD_UPDATE_ROUTE = "/update/"
@@ -399,24 +400,19 @@ class MDFConnectClient:
         """
         self.test = test
 
-    def add_organization(self, organization):
-        """Add your dataset to an organization.
+    def set_organization(self, organization):
+        """Set the organization that governs the dataset.
 
         Arguments:
-            organization (str or list of str): The organization(s) to add.
+            organization (str): The organization to add.
                     If the organization is not registered with MDF, it will be discarded.
-                    Parent organizations will be added automatically.
         """
-        if not isinstance(organization, list):
-            organization = [organization]
-        if not self.mdf.get("organizations"):
-            self.mdf["organizations"] = organization
-        else:
-            self.mdf["organizations"].extend(organization)
 
-    def clear_organizations(self):
-        """Clear all added organizations from the submission."""
-        self.mdf.pop("organizations", None)
+        self.mdf["organization"] = organization
+
+    def clear_organization(self):
+        """Clear the added organizations from the submission."""
+        self.mdf.pop("organization", None)
 
     def add_links(self, links):
         """Add links to a dataset.
@@ -528,10 +524,10 @@ class MDFConnectClient:
         """Remove a previously set source_name."""
         self.mdf.pop("source_name", None)
 
-    def set_incremental_update(self, source_id):
-        """Make this submission an incremental update of a previous submission.
+    def set_update_metadata_only(self, metadata_only):
+        """Make this submission an update on the metadata only of a previous submission.
         Incremental updates use the same submission metadata, except for whatever you
-        specify in the new submission. For example, if you submit an incremental update
+        specify in the new submission. For example, if you submit an metadata only update
         and only include a ``data_source``, the submission will run as if you copied the
         DC block and other metadata into the submission, but with the new ``data_source``.
 
@@ -539,9 +535,9 @@ class MDFConnectClient:
             You must still set ``update=True`` when submitting an incremental update.
 
         Arguments:
-            source_id (str): The ``source_id`` of the previous submission to update.
+            metadata_only (boolean): If true then flow performs an update on the metadata only
         """
-        self.incremental_update = source_id
+        self.update_metadata_only = metadata_only
 
     def add_data_destination(self, data_destination):
         """Add a data destination to your submission.
@@ -667,6 +663,8 @@ class MDFConnectClient:
         }
         if self.mdf:
             submission["mdf"] = self.mdf
+        else:
+            submission["mdf"] = {}
         if self.mrr:
             submission["mrr"] = self.mrr
         if self.custom:
@@ -693,8 +691,7 @@ class MDFConnectClient:
             submission["no_extract"] = self.no_extract
         if self.dataset_acl:
             submission["dataset_acl"] = self.dataset_acl
-        if self.incremental_update:
-            submission["incremental_update"] = self.incremental_update
+        submission["update_metadata_only"] = self.update_metadata_only
         return submission
 
     def reset_submission(self):
@@ -721,7 +718,7 @@ class MDFConnectClient:
         self.set_extraction_config({})
         self.set_curation(False)
         self.set_passthrough(False)
-        self.set_incremental_update(False)
+        self.set_update_metadata_only(False)
 
         self.clear_data_sources()
         self.clear_external_uri()
@@ -782,7 +779,7 @@ class MDFConnectClient:
 
         # Check for required data
         if ((not submission["dc"] or not submission["data_sources"])
-                and not submission["incremental_update"]):
+                and not submission["update_metadata_only"]):
             return {
                 'source_id': None,
                 'success': False,
@@ -867,7 +864,7 @@ class MDFConnectClient:
         metadata_update.pop("services", None)
         metadata_update.pop("curation", None)
         metadata_update.pop("no_extract", None)
-        metadata_update.pop("incremental_update", None)
+        metadata_update.pop("update_metadata_only", None)
 
         # Validate JSON
         try:
@@ -970,12 +967,16 @@ class MDFConnectClient:
                 print("Error {}. MDF Connect may be experiencing technical"
                       " difficulties.".format(res.status_code))
         else:
-            if json_res.get("status", {}).get("active"):
+            if 'status' not in json_res['flow_status']:
+                print("Error: No status found for this submission.")
+                return json_res
+
+            if json_res['flow_status']['status'] == 'ACTIVE':
                 active_msg = "This submission is still processing."
             else:
                 active_msg = "This submission is no longer processing."
             if raw:
-                json_res["status_code"] = res.status_code
+                json_res['flow_status']['status_code'] = res.status_code
                 return json_res
             elif res.status_code >= 300:
                 print("Error {} fetching status: {}".format(res.status_code,
@@ -983,7 +984,7 @@ class MDFConnectClient:
             elif short:
                 print("{}: {}".format((source_id or self.source_id), active_msg))
             else:
-                print("\n{}\n{}\n".format(json_res["status"]["status_message"], active_msg))
+                print("\n{}\n{}\n".format(json_res["display_status"], active_msg))
 
     def check_all_submissions(self, verbose=False, active_only=False, include_tests=True,
                               newer_than_date=None, older_than_date=None, raw=False,

@@ -3,8 +3,9 @@
 *.swo
 *login*
 *.ipynb_checkpoints
+.venv
 Untitled*.ipynb
-
+.idea
 *.cache*
 *pytest_cache*
 
