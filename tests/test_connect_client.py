@@ -5,11 +5,11 @@ import pytest
 
 from mdf_connect_client import MDFConnectClient
 from mdf_connect_client.mdfcc import CONNECT_SERVICE_LOC, CONNECT_DEV_LOC
-
+from globus_sdk import NullAuthorizer
 
 @pytest.fixture
 def auths(mocker):
-    return {"mdf_connect": mocker.MagicMock(), "mdf_connect_dev": mocker.MagicMock()}
+    return {"mdf_connect": NullAuthorizer(), "mdf_connect_dev": NullAuthorizer()}
 
 
 def test_service_loc(auths):
