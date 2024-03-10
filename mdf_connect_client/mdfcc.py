@@ -109,7 +109,7 @@ class MDFConnectClient:
     def create_dc_block(self, title, authors,
                         affiliations=None, publisher=None, publication_year=None,
                         resource_type=None, description=None, dataset_doi=None,
-                        related_dois=None, subjects=None,
+                        related_dois=None, subjects=None, rights=None,
                         **kwargs):
         """Create your submission's dc block.
         This block is the DataCite block. Additional information on DataCite fields
@@ -154,7 +154,10 @@ class MDFConnectClient:
                     not including the dataset's own DOI (for example, an associated paper's DOI).
                     **Default:** ``None``
             subjects (str or list of str): Subjects (in Datacite terminology) or tags related
-                    to the dataset. **Sefault:** ``None``
+                    to the dataset. **Default:** ``None``
+            rights (str): RightsList entries (in Datacite terminology) 
+                    **Default:** ``None``
+            
         Any further keyword arguments will be added to the DataCite metadata (the dc block).
         These arguments should be valid DataCite, as listed in the MDF Connect documentation.
         This is completely optional.
@@ -252,6 +255,11 @@ class MDFConnectClient:
                 "subject": sub
             } for sub in subjects]
 
+        if rights:
+            if not isinstance(rights, list):
+                rights = [rights]
+            dc['rightsList'] = [{"rights": r} for r in rights]
+                          
         # misc
         if kwargs:
             dc = mdf_toolbox.dict_merge(dc, kwargs)
