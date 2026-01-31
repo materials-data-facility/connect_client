@@ -1,0 +1,16 @@
+composition,formation_energy_eV_atom,volume_A3,magnetic_moment_muB,bandgap_eV,space_group
+Fe3Al,0.123,45.67,2.34,0.0,Fm-3m
+FeAl,0.234,34.56,0.12,0.0,Pm-3m
+FeAl3,0.345,56.78,0.05,0.45,I4/mmm
+Fe2Al5,0.456,78.90,0.08,0.32,Cmcm
+FeAl2,0.287,42.15,0.03,0.28,P1
+Ni3Al,0.198,43.21,0.45,0.0,Pm-3m
+NiAl,0.312,27.89,0.02,0.0,Pm-3m
+NiAl3,0.423,65.43,0.01,0.18,Pnma
+Co3Al,0.156,41.23,1.67,0.0,Pm-3m
+CoAl,0.267,28.45,0.34,0.0,Pm-3m
+Ti3Al,0.089,67.89,0.0,0.0,P63/mmc
+TiAl,0.145,32.56,0.0,0.0,P4/mmm
+TiAl3,0.234,54.32,0.0,0.12,I4/mmm
+Cr3Al,0.178,38.90,0.89,0.0,Pm-3m
+CrAl,0.289,29.67,0.23,0.0,Pm-3m

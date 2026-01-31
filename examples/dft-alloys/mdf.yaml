@@ -1,0 +1,21 @@
+title: High-Throughput DFT Study of Binary Intermetallic Alloys
+authors:
+- Jane Doe
+- John Smith
+- Alice Chen
+description: Formation energies and electronic properties for 15 Al-X intermetallics
+data_sources:
+- ./calculations.csv
+- ./parameters.json
+auto_metadata:
+  mdf:
+    table_schema:
+      file: calculations.csv
+      columns:
+      - name: composition
+      - name: formation_energy_eV_atom
+      - name: volume_A3
+      - name: magnetic_moment_muB
+      - name: bandgap_eV
+      - name: space_group
+      row_count: 15

@@ -1,22 +1,4 @@
-# MDF Agent (Rewrite)
-
-This repository now includes the new `mdf_agent` package (CLI: `mdf`) alongside the
-legacy `mdf_connect_client` implementation. The legacy code has been copied into
-`legacy/` for reference.
-
-## Quickstart (mdf_agent)
-
-```bash
-pip install -e .
-mdf init --title "My Dataset" --author "Jane Doe"
-mdf add ./data
-mdf commit -m "Initial commit"
-mdf publish --test
-```
-
----
-
-# MDF Connect Client (Legacy)
+# MDF Connect Client
 [![PyPI](https://img.shields.io/pypi/v/mdf_connect_client.svg)](https://pypi.python.org/pypi/mdf-connect-client) 
 [![Coverage Status](https://coveralls.io/repos/github/materials-data-facility/connect_client/badge.svg?branch=master)](https://coveralls.io/github/materials-data-facility/connect_client?branch=master)
 ![GHA](https://github.com/materials-data-facility/connect_client/actions/workflows/testing-work.yml/badge.svg)

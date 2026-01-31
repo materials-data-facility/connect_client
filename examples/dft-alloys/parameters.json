@@ -1,0 +1,27 @@
+{
+  "calculation_method": {
+    "software": "VASP",
+    "version": "6.3.2",
+    "functional": "PBE",
+    "pseudopotentials": "PAW_PBE",
+    "encut_eV": 520,
+    "kpoints_density": 8000,
+    "smearing": {
+      "method": "Methfessel-Paxton",
+      "sigma_eV": 0.2
+    }
+  },
+  "convergence_criteria": {
+    "energy_eV": 1e-6,
+    "force_eV_A": 0.01
+  },
+  "magnetic_settings": {
+    "spin_polarized": true,
+    "initial_magmom": "default"
+  },
+  "relaxation": {
+    "ions": true,
+    "cell_shape": true,
+    "cell_volume": true
+  }
+}

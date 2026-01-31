@@ -1,0 +1,14 @@
+{
+  "version": "1",
+  "root": "/Users/ben/Desktop/git/mdf_client/examples/dft-alloys",
+  "staged_files": [],
+  "commits": [
+    {
+      "message": "Initial data",
+      "timestamp": "2026-01-31T06:10:20.895512Z",
+      "staged_files": [
+        "calculations.csv"
+      ]
+    }
+  ]
+}
