@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 from functools import wraps
+import os
 from typing import List, Optional
 
 import typer
@@ -22,7 +23,10 @@ from rich.panel import Panel
 from rich import print as rprint
 
 from mdf_agent.core.agent import MDFAgent
+from mdf_agent.core.backend_client import BackendClient, _api_url_for_service
 from mdf_agent.core.exceptions import NotARepositoryError
+from mdf_agent.cli.backend import app as backend_app
+from mdf_agent.cli.stream import app as stream_app
 
 console = Console()
 
@@ -45,6 +49,53 @@ app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
 )
+
+app.add_typer(backend_app, name="backend")
+app.add_typer(stream_app, name="stream")
+
+
+@app.command()
+def login(
+    service: str = typer.Option("prod", "--service", "-s", help="Service instance (prod/dev)"),
+    token: Optional[str] = typer.Option(None, "--token", help="Use an explicit access token"),
+):
+    """Authenticate with Globus for MDF Connect."""
+    from mdf_agent.auth.globus import DEFAULT_TOKEN_PATH, get_authorizer
+
+    get_authorizer(token=token, service_instance=service)
+    console.print("[green]Authentication ready[/green]")
+    console.print(f"[dim]Token store:[/dim] {DEFAULT_TOKEN_PATH}")
+    if token:
+        console.print("[dim]Using token from --token for this invocation.[/dim]")
+
+
+@app.command()
+def logout():
+    """Clear cached Globus credentials."""
+    from mdf_agent.auth.globus import DEFAULT_TOKEN_PATH, logout as clear_cached_tokens
+
+    removed = clear_cached_tokens()
+    if removed:
+        console.print("[green]Logged out[/green]")
+    else:
+        console.print(f"[yellow]No cached token file found[/yellow] ({DEFAULT_TOKEN_PATH})")
+
+
+@app.command()
+def whoami(
+    service: str = typer.Option("prod", "--service", "-s", help="Service instance (prod/dev)"),
+):
+    """Show current authentication status."""
+    from mdf_agent.auth.globus import DEFAULT_TOKEN_PATH, is_logged_in
+
+    cached = is_logged_in(service_instance=service)
+    env_token = bool(os.environ.get("MDF_CONNECT_TOKEN"))
+    status = "authenticated" if (cached or env_token) else "not authenticated"
+    console.print(f"[bold]Service:[/bold] {service}")
+    console.print(f"[bold]Status:[/bold] {status}")
+    console.print(f"[bold]Token store:[/bold] {DEFAULT_TOKEN_PATH}")
+    if env_token:
+        console.print("[dim]MDF_CONNECT_TOKEN is set in environment[/dim]")
 
 
 @app.command()
@@ -186,39 +237,50 @@ def publish(
     test: bool = typer.Option(False, "--test", "-t", help="Submit to test environment"),
     update: bool = typer.Option(False, "--update", "-u", help="Update existing dataset"),
     dry_run: bool = typer.Option(True, "--dry-run/--submit", help="Preview without submitting"),
-    service: str = typer.Option("prod", "--service", "-s", help="Service instance (prod/dev)"),
+    service: str = typer.Option("prod", "--service", "-s", help="Service instance (prod/dev/local)"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API URL for local backend"),
     token: Optional[str] = typer.Option(None, "--token", help="Globus access token"),
+    dev_user: Optional[str] = typer.Option(None, "--dev-user", help="Dev-mode user id (X-User-Id)"),
 ):
     """Publish dataset to MDF Connect.
 
     By default, performs a dry run showing the payload.
     Use --submit to actually send to MDF Connect.
+
+    Examples:
+        mdf publish                            # Dry run - show payload
+        mdf publish --submit                   # Submit to production
+        mdf publish --submit --service local   # Submit to local backend
     """
     import json
     from rich.syntax import Syntax
-    from mdf_agent.auth.globus import get_authorizer
 
     agent = MDFAgent.from_repo(".")
+    payload = agent.build_submission(test=test, update=update)
 
     if dry_run:
-        payload = agent.build_submission(test=test, update=update)
         console.print("\n[bold cyan]Dry run - would submit:[/bold cyan]")
+        target = api_url or _api_url_for_service(service)
+        console.print(f"[dim]Target: {target} ({service})[/dim]")
         syntax = Syntax(json.dumps(payload, indent=2), "json", theme="monokai")
         console.print(syntax)
         return
 
-    authorizer = get_authorizer(token=token, service_instance=service)
     result = agent.publish(
         test=test,
         update=update,
         dry_run=False,
-        authorizer=authorizer,
+        token=token,
         service_instance=service,
+        api_url=api_url,
+        dev_user_id=dev_user,
     )
 
     if result.get("success"):
         console.print("\n[bold green]Published successfully![/bold green]")
         console.print(f"  [dim]Source ID:[/dim] [cyan]{result.get('source_id')}[/cyan]")
+        if result.get("version"):
+            console.print(f"  [dim]Version:[/dim] [cyan]{result.get('version')}[/cyan]")
     else:
         console.print(f"\n[bold red]Publish failed:[/bold red] {result.get('error')}")
         raise typer.Exit(code=1)
@@ -267,6 +329,71 @@ def clone(
     console.print(f"  [dim]Derived from:[/dim] [cyan]{source_id}[/cyan]")
     if relationship:
         console.print(f"  [dim]Relationship:[/dim] {relationship}")
+
+
+@app.command()
+def search(
+    query: str = typer.Argument(..., help="Search query"),
+    search_type: str = typer.Option("all", "--type", "-t", help="all, datasets, or streams"),
+    limit: int = typer.Option(20, "--limit", "-n", help="Max results"),
+    service: str = typer.Option("prod", "--service", "-s", help="Service instance (prod/dev/local)"),
+    token: Optional[str] = typer.Option(None, "--token", help="Globus access token"),
+    dev_user: Optional[str] = typer.Option(None, "--dev-user", help="Dev-mode user id (X-User-Id)"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+):
+    """Search datasets and streams in MDF.
+
+    Examples:
+        mdf search "perovskite"
+        mdf search "XRD" --type streams
+        mdf search "iron oxide" --limit 5
+    """
+    resolved_token = token or os.environ.get("MDF_CONNECT_TOKEN")
+    resolved_dev_user = dev_user or os.environ.get("MDF_DEV_USER_ID")
+    if resolved_token or resolved_dev_user:
+        client = BackendClient.authenticated(
+            base_url=api_url,
+            token=token,
+            service_instance=service,
+            dev_user_id=dev_user,
+        )
+    else:
+        client = BackendClient(base_url=api_url or _api_url_for_service(service))
+    result = client.search(query, search_type=search_type, limit=limit)
+    client.close()
+
+    if result.get("results"):
+        total = result.get("total", 0)
+        console.print(f"\n[bold]Found {total} results for[/bold] [cyan]'{result.get('query')}'[/cyan]\n")
+
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Type", width=8)
+        table.add_column("Title")
+        table.add_column("ID")
+        table.add_column("Status", style="dim")
+
+        for i, item in enumerate(result["results"], 1):
+            if item.get("type") == "dataset":
+                table.add_row(
+                    str(i),
+                    "[blue]dataset[/blue]",
+                    item.get("title", "Untitled")[:40],
+                    f"{item.get('source_id')} v{item.get('version')}",
+                    item.get("status", ""),
+                )
+            else:
+                table.add_row(
+                    str(i),
+                    "[green]stream[/green]",
+                    item.get("title", "Untitled")[:40],
+                    item.get("stream_id", ""),
+                    f"{item.get('file_count', 0)} files",
+                )
+
+        console.print(table)
+    else:
+        console.print(f"\n[dim]No results found for '{query}'[/dim]")
 
 
 if __name__ == "__main__":

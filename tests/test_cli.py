@@ -1,9 +1,11 @@
 """Tests for MDF Agent CLI commands."""
 
-import json
-import pytest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import json
+import os
+
+import pytest
 
 from typer.testing import CliRunner
 
@@ -287,3 +289,39 @@ class TestCLIHelp:
         """mdf clone --help shows options."""
         result = runner.invoke(app, ["clone", "--help"])
         assert result.exit_code == 0
+
+
+class TestAuthCommands:
+    """Tests for login/logout/whoami commands."""
+
+    def test_login_invokes_auth(self, monkeypatch):
+        called = {"ok": False, "service": None, "token": None}
+
+        def fake_get_authorizer(*, token=None, service_instance="prod", **kwargs):
+            called["ok"] = True
+            called["service"] = service_instance
+            called["token"] = token
+            return object()
+
+        monkeypatch.setattr("mdf_agent.auth.globus.get_authorizer", fake_get_authorizer)
+
+        result = runner.invoke(app, ["login", "--service", "dev", "--token", "abc123"])
+        assert result.exit_code == 0
+        assert "Authentication ready" in result.stdout
+        assert called["ok"] is True
+        assert called["service"] == "dev"
+        assert called["token"] == "abc123"
+
+    def test_logout_reports_success(self, monkeypatch):
+        monkeypatch.setattr("mdf_agent.auth.globus.logout", lambda: True)
+        result = runner.invoke(app, ["logout"])
+        assert result.exit_code == 0
+        assert "Logged out" in result.stdout
+
+    def test_whoami_uses_env_token_status(self, monkeypatch):
+        monkeypatch.setattr("mdf_agent.auth.globus.is_logged_in", lambda service_instance="prod": False)
+        monkeypatch.setenv("MDF_CONNECT_TOKEN", "env-token")
+        result = runner.invoke(app, ["whoami", "--service", "prod"])
+        assert result.exit_code == 0
+        assert "authenticated" in result.stdout
+        assert "MDF_CONNECT_TOKEN is set in environment" in result.stdout

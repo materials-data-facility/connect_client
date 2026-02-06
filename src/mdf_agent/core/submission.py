@@ -5,8 +5,7 @@ This module handles:
 2. Resolving data sources (local paths, globs, remote URLs)
 3. Submitting payloads to MDF Connect API
 
-The submission payload format must match the MDF Connect API expectations
-exactly. This is the critical compatibility layer.
+The submission payload uses the flat v2 metadata format.
 """
 
 from __future__ import annotations
@@ -14,12 +13,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+import warnings
 
 import httpx
 
-from mdf_agent.core.utils import deep_merge
 from mdf_agent.models.config import DataSource, ManifestConfig
-from mdf_agent.models.datacite import DataCite
 from mdf_agent.models.submission import Submission
 
 # MDF Connect API endpoints
@@ -87,11 +85,7 @@ def build_submission(
 ) -> Dict[str, Any]:
     """Build a submission payload from manifest configuration.
 
-    Constructs the complete JSON payload required by the MDF Connect API,
-    including DataCite metadata, data sources, and all optional fields.
-
-    Auto-discovered metadata (from extractors) is merged with manifest metadata,
-    with explicit manifest values taking precedence.
+    Constructs the complete flat v2 JSON payload for the MDF Connect API.
 
     Args:
         manifest: The ManifestConfig containing dataset metadata.
@@ -106,47 +100,38 @@ def build_submission(
         ValueError: If manifest is missing required fields (title, authors).
         json.JSONDecodeError: If payload contains invalid JSON (NaN, Infinity).
     """
-    datacite = DataCite.from_manifest(manifest)
-    dc_dict = datacite.to_dict()
+    if not manifest.title or not manifest.authors:
+        raise ValueError("Manifest requires 'title' and 'authors'")
 
-    auto_metadata = manifest.auto_metadata or {}
-    if auto_metadata.get("dc"):
-        dc_dict = deep_merge(auto_metadata["dc"], dc_dict)
-
-    mdf_block: Dict[str, Any] = {}
-    if manifest.organization:
-        mdf_block["organization"] = manifest.organization
-    if manifest.acl:
-        mdf_block["acl"] = manifest.acl
-
-    if auto_metadata.get("mdf"):
-        mdf_block = deep_merge(auto_metadata["mdf"], mdf_block)
-    if manifest.mdf:
-        mdf_block = deep_merge(mdf_block, manifest.mdf)
-
-    custom_block = None
-    if auto_metadata.get("custom"):
-        custom_block = auto_metadata["custom"]
-    if manifest.custom:
-        custom_block = deep_merge(custom_block or {}, manifest.custom)
+    # Build the flat metadata payload from the manifest
+    metadata = manifest.to_metadata_payload()
 
     data_sources = resolve_data_sources(manifest.data_sources, root)
 
     submission = Submission(
-        dc=dc_dict,
+        title=metadata.get("title"),
+        authors=metadata.get("authors"),
+        description=metadata.get("description"),
+        keywords=metadata.get("keywords", []),
+        publisher=metadata.get("publisher", "Materials Data Facility"),
+        publication_year=metadata.get("publication_year"),
+        resource_type=metadata.get("resource_type", "Dataset"),
         data_sources=data_sources,
         test=test,
         update=update,
-        mdf=mdf_block,
+        organization=metadata.get("organization"),
+        tags=metadata.get("tags"),
+        acl=metadata.get("acl"),
+        related_works=metadata.get("related_works"),
+        extensions=metadata.get("extensions"),
+        ml=metadata.get("ml"),
+        # Legacy fields that still need to be passed through
         mrr=manifest.mrr,
-        custom=custom_block,
-        projects=manifest.projects,
         data_destinations=manifest.data_destinations,
         external_uri=manifest.external_uri,
         index=manifest.index,
         extraction_config=manifest.extraction_config,
         services=manifest.services,
-        tags=manifest.tags,
         links=manifest.links,
         no_extract=manifest.no_extract,
         dataset_acl=manifest.dataset_acl,
@@ -183,6 +168,12 @@ def submit_submission(
         - error: str with error message (if failed)
         - response: dict with full API response (if successful)
     """
+    warnings.warn(
+        "submit_submission() is deprecated; use BackendClient.authenticated(...).submit(payload) instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     if service_instance in ("prod", "production", None):
         service_loc = CONNECT_SERVICE_LOC
     elif service_instance in ("dev", "development"):

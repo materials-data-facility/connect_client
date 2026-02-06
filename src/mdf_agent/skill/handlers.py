@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from mdf_agent.auth.globus import get_authorizer
+from mdf_agent.core.backend_client import BackendClient
 from mdf_agent.core.agent import MDFAgent
 from mdf_agent.extractors.registry import discover_metadata
 
@@ -52,9 +52,116 @@ def publish(
     token: Optional[str] = None,
     client_id: Optional[str] = None,
     scope: Optional[str] = None,
+    service_instance: str = "prod",
+    api_url: Optional[str] = None,
+    dev_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
+    # client_id/scope are retained for backward compatibility with existing skill callers.
+    _ = (client_id, scope)
     agent = MDFAgent.from_repo(path)
-    authorizer = None
-    if submit:
-        authorizer = get_authorizer(token=token, client_id=client_id, scope=scope)
-    return agent.publish(test=test, update=update, dry_run=not submit, authorizer=authorizer)
+    return agent.publish(
+        test=test,
+        update=update,
+        dry_run=not submit,
+        token=token,
+        service_instance=service_instance,
+        api_url=api_url,
+        dev_user_id=dev_user_id,
+    )
+
+
+def stream_create(
+    title: str,
+    lab_id: str | None = None,
+    organization: str | None = None,
+    api_url: str | None = None,
+    token: str | None = None,
+    service_instance: str = "prod",
+    dev_user_id: str | None = None,
+) -> Dict[str, Any]:
+    client = BackendClient.authenticated(
+        base_url=api_url,
+        token=token,
+        service_instance=service_instance,
+        dev_user_id=dev_user_id,
+    )
+    result = client.stream_create(title, lab_id=lab_id, organization=organization)
+    client.close()
+    return result
+
+
+def stream_append(
+    stream_id: str,
+    files: list | None = None,
+    file_count: int | None = None,
+    total_bytes: int | None = None,
+    api_url: str | None = None,
+    token: str | None = None,
+    service_instance: str = "prod",
+    dev_user_id: str | None = None,
+) -> Dict[str, Any]:
+    client = BackendClient.authenticated(
+        base_url=api_url,
+        token=token,
+        service_instance=service_instance,
+        dev_user_id=dev_user_id,
+    )
+    result = client.stream_append(stream_id, files=files, file_count=file_count, total_bytes=total_bytes)
+    client.close()
+    return result
+
+
+def stream_status(
+    stream_id: str,
+    api_url: str | None = None,
+    token: str | None = None,
+    service_instance: str = "prod",
+    dev_user_id: str | None = None,
+) -> Dict[str, Any]:
+    client = BackendClient.authenticated(
+        base_url=api_url,
+        token=token,
+        service_instance=service_instance,
+        dev_user_id=dev_user_id,
+    )
+    result = client.stream_status(stream_id)
+    client.close()
+    return result
+
+
+def stream_close(
+    stream_id: str,
+    api_url: str | None = None,
+    token: str | None = None,
+    service_instance: str = "prod",
+    dev_user_id: str | None = None,
+) -> Dict[str, Any]:
+    client = BackendClient.authenticated(
+        base_url=api_url,
+        token=token,
+        service_instance=service_instance,
+        dev_user_id=dev_user_id,
+    )
+    result = client.stream_close(stream_id)
+    client.close()
+    return result
+
+
+def stream_snapshot(
+    stream_id: str,
+    title: str | None = None,
+    update: bool = False,
+    api_url: str | None = None,
+    token: str | None = None,
+    service_instance: str = "prod",
+    dev_user_id: str | None = None,
+) -> Dict[str, Any]:
+    client = BackendClient.authenticated(
+        base_url=api_url,
+        token=token,
+        service_instance=service_instance,
+        dev_user_id=dev_user_id,
+    )
+    result = client.stream_snapshot(stream_id, title=title, update=update)
+    client.close()
+    return result

@@ -30,8 +30,9 @@ from typing import Any, Dict, List, Optional
 
 from mdf_agent.core.manifest import load_manifest, save_manifest
 from mdf_agent.core.repository import Repository
-from mdf_agent.core.submission import build_submission, submit_submission
+from mdf_agent.core.submission import build_submission
 from mdf_agent.core.validation import validate_manifest
+from mdf_agent.core.backend_client import BackendClient
 from mdf_agent.extractors.registry import discover_metadata
 from mdf_agent.models.config import Author, ManifestConfig
 
@@ -130,13 +131,33 @@ class MDFAgent:
         test: bool = False,
         update: bool = False,
         dry_run: bool = True,
-        authorizer: Optional[Any] = None,
+        token: Optional[str] = None,
         service_instance: str = "prod",
+        api_url: Optional[str] = None,
+        dev_user_id: Optional[str] = None,
+        authorizer: Optional[Any] = None,
     ) -> Dict[str, Any]:
         payload = self.build_submission(test=test, update=update)
         if dry_run:
             return {"success": True, "payload": payload}
-        return submit_submission(payload, authorizer=authorizer, service_instance=service_instance)
+
+        # Backward compatibility: extract a bearer token if a legacy authorizer is passed.
+        if authorizer is not None and token is None:
+            header = authorizer.get_authorization_header()
+            if isinstance(header, str):
+                bearer_prefix = "Bearer "
+                token = header[len(bearer_prefix):] if header.startswith(bearer_prefix) else header
+
+        client = BackendClient.authenticated(
+            base_url=api_url,
+            token=token,
+            service_instance=service_instance,
+            dev_user_id=dev_user_id,
+        )
+        try:
+            return client.submit(payload)
+        finally:
+            client.close()
 
     def set_title(self, title: str) -> None:
         self.manifest.title = title
@@ -151,3 +172,101 @@ class MDFAgent:
         if self.manifest.data_sources is None:
             self.manifest.data_sources = []
         self.manifest.data_sources.append(source)
+
+    # Streaming helpers
+    def stream_create(
+        self,
+        title: str,
+        lab_id: Optional[str] = None,
+        organization: Optional[str] = None,
+        api_url: Optional[str] = None,
+        token: Optional[str] = None,
+        service_instance: str = "prod",
+        dev_user_id: Optional[str] = None,
+    ):
+        client = BackendClient.authenticated(
+            base_url=api_url,
+            token=token,
+            service_instance=service_instance,
+            dev_user_id=dev_user_id,
+        )
+        result = client.stream_create(title, lab_id=lab_id, organization=organization)
+        client.close()
+        return result
+
+    def stream_append(
+        self,
+        stream_id: str,
+        files: Optional[Any] = None,
+        file_count: Optional[int] = None,
+        total_bytes: Optional[int] = None,
+        api_url: Optional[str] = None,
+        token: Optional[str] = None,
+        service_instance: str = "prod",
+        dev_user_id: Optional[str] = None,
+    ):
+        client = BackendClient.authenticated(
+            base_url=api_url,
+            token=token,
+            service_instance=service_instance,
+            dev_user_id=dev_user_id,
+        )
+        result = client.stream_append(stream_id, files=files, file_count=file_count, total_bytes=total_bytes)
+        client.close()
+        return result
+
+    def stream_status(
+        self,
+        stream_id: str,
+        api_url: Optional[str] = None,
+        token: Optional[str] = None,
+        service_instance: str = "prod",
+        dev_user_id: Optional[str] = None,
+    ):
+        client = BackendClient.authenticated(
+            base_url=api_url,
+            token=token,
+            service_instance=service_instance,
+            dev_user_id=dev_user_id,
+        )
+        result = client.stream_status(stream_id)
+        client.close()
+        return result
+
+    def stream_close(
+        self,
+        stream_id: str,
+        api_url: Optional[str] = None,
+        token: Optional[str] = None,
+        service_instance: str = "prod",
+        dev_user_id: Optional[str] = None,
+    ):
+        client = BackendClient.authenticated(
+            base_url=api_url,
+            token=token,
+            service_instance=service_instance,
+            dev_user_id=dev_user_id,
+        )
+        result = client.stream_close(stream_id)
+        client.close()
+        return result
+
+    def stream_snapshot(
+        self,
+        stream_id: str,
+        title: Optional[str] = None,
+        update: bool = False,
+        api_url: Optional[str] = None,
+        token: Optional[str] = None,
+        service_instance: str = "prod",
+        dev_user_id: Optional[str] = None,
+    ):
+        client = BackendClient.authenticated(
+            base_url=api_url,
+            token=token,
+            service_instance=service_instance,
+            dev_user_id=dev_user_id,
+        )
+        result = client.stream_snapshot(stream_id, title=title, update=update)
+        client.close()
+        return result

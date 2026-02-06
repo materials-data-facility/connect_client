@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
+from typing import Optional
 
 import typer
 
-from mdf_agent.auth.globus import get_authorizer
 from mdf_agent.core.agent import MDFAgent
 
 app = typer.Typer(help="Build or submit an MDF dataset")
@@ -15,21 +15,20 @@ def publish(
     test: bool = typer.Option(False, "--test", help="Submit as test dataset"),
     update: bool = typer.Option(False, "--update", help="Submit as update"),
     submit: bool = typer.Option(False, "--submit", help="Submit to MDF Connect"),
-    service: str = typer.Option("prod", "--service", help="prod or dev"),
+    service: str = typer.Option("prod", "--service", help="prod, dev, or local"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
     token: str | None = typer.Option(None, "--token", help="Access token"),
-    client_id: str | None = typer.Option(None, "--client-id", help="Globus client ID"),
-    scope: str | None = typer.Option(None, "--scope", help="Globus scope"),
+    dev_user: str | None = typer.Option(None, "--dev-user", help="Dev-mode user id (X-User-Id)"),
 ):
     agent = MDFAgent.from_repo(".")
-    authorizer = None
-    if submit:
-        authorizer = get_authorizer(token=token, client_id=client_id, scope=scope)
     result = agent.publish(
         test=test,
         update=update,
         dry_run=not submit,
-        authorizer=authorizer,
+        token=token,
         service_instance=service,
+        api_url=api_url,
+        dev_user_id=dev_user,
     )
 
     if not submit:
