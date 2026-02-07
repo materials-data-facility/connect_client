@@ -51,7 +51,10 @@ MDF_CONNECT_DEV_RESOURCE_SERVER = "0e0a9538-ce45-43c1-998a-d3a7031a83f0"
 TRANSFER_SCOPE = "urn:globus:auth:scope:transfer.api.globus.org:all"
 SEARCH_SCOPE = "urn:globus:auth:scope:search.api.globus.org:search"
 SEARCH_INGEST_SCOPE = "urn:globus:auth:scope:search.api.globus.org:all"
-DATA_MDF_SCOPE = "urn:globus:auth:scope:data.materialsdatafacility.org:all"
+# NCSA MDF collection — the HTTPS endpoint requires a scope tied to the
+# collection UUID, not the hostname.
+NCSA_MDF_COLLECTION_UUID = "82f1b5c6-6e9b-11e5-ba47-22000b92c6ec"
+DATA_MDF_SCOPE = f"https://auth.globus.org/scopes/{NCSA_MDF_COLLECTION_UUID}/https"
 
 # Scope sets for different operations
 PUBLISH_SCOPES = [MDF_CONNECT_SCOPE]
@@ -71,6 +74,7 @@ def get_scopes_for_service(service_instance: str = "prod") -> tuple[str, str]:
     """
     if service_instance in ("dev", "development"):
         return MDF_CONNECT_DEV_SCOPE, MDF_CONNECT_DEV_RESOURCE_SERVER
+    # staging uses prod auth (same Globus introspection)
     return MDF_CONNECT_SCOPE, MDF_CONNECT_RESOURCE_SERVER
 
 
@@ -207,7 +211,19 @@ def get_authorizer_for_scopes(
         print("Opening browser for Globus authentication...")
         app.login()
 
-    return {rs: app.get_authorizer(rs) for rs in scope_reqs}
+    # UserApp always adds openid/profile/email for auth.globus.org;
+    # include that authorizer so callers can use it for identity.
+    all_servers = list(scope_reqs.keys())
+    if "auth.globus.org" not in all_servers:
+        all_servers.append("auth.globus.org")
+
+    result = {}
+    for rs in all_servers:
+        try:
+            result[rs] = app.get_authorizer(rs)
+        except Exception:
+            pass
+    return result
 
 
 def logout(token_path: Path = DEFAULT_TOKEN_PATH) -> bool:

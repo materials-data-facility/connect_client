@@ -69,3 +69,73 @@ class ManifestConfig(BaseModel):
     auto_metadata: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(extra="allow")
+
+    def to_metadata_payload(self) -> Dict[str, Any]:
+        """Convert ManifestConfig to the flat v2 metadata API format.
+
+        Maps researcher-friendly manifest fields to the DatasetMetadata schema.
+        """
+        payload: Dict[str, Any] = {}
+
+        # Title
+        if self.title:
+            payload["title"] = self.title[0] if isinstance(self.title, list) else self.title
+
+        # Authors
+        if self.authors:
+            authors = []
+            for a in self.authors:
+                if isinstance(a, Author):
+                    entry: Dict[str, Any] = {"name": a.name}
+                    if a.affiliations:
+                        entry["affiliations"] = a.affiliations
+                    if a.orcid:
+                        entry["orcid"] = a.orcid
+                    authors.append(entry)
+                else:
+                    authors.append({"name": a})
+            payload["authors"] = authors
+
+        if self.description:
+            payload["description"] = self.description
+        if self.publisher:
+            payload["publisher"] = self.publisher
+        if self.publication_year:
+            try:
+                payload["publication_year"] = int(self.publication_year)
+            except (ValueError, TypeError):
+                pass
+        if self.resource_type:
+            payload["resource_type"] = self.resource_type
+
+        # Keywords (from subjects)
+        if self.subjects:
+            payload["keywords"] = self.subjects
+
+        # Organization
+        if self.organization:
+            payload["organization"] = self.organization
+        if self.acl:
+            payload["acl"] = self.acl
+        if self.tags:
+            payload["tags"] = self.tags
+
+        # Related works (from related_dois)
+        if self.related_dois:
+            payload["related_works"] = [
+                {"identifier": doi, "identifier_type": "DOI", "relation_type": "References"}
+                for doi in self.related_dois
+            ]
+
+        # Extensions (from custom, projects minus foundry)
+        extensions: Dict[str, Any] = {}
+        if self.custom:
+            extensions.update(self.custom)
+        if self.projects:
+            for k, v in self.projects.items():
+                if k != "foundry":
+                    extensions[k] = v
+        if extensions:
+            payload["extensions"] = extensions
+
+        return payload

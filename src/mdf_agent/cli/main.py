@@ -60,9 +60,23 @@ def login(
     token: Optional[str] = typer.Option(None, "--token", help="Use an explicit access token"),
 ):
     """Authenticate with Globus for MDF Connect."""
-    from mdf_agent.auth.globus import DEFAULT_TOKEN_PATH, get_authorizer
+    from mdf_agent.auth.globus import (
+        DEFAULT_TOKEN_PATH,
+        DATA_MDF_SCOPE,
+        TRANSFER_SCOPE,
+        get_authorizer_for_scopes,
+        get_scopes_for_service,
+    )
 
-    get_authorizer(token=token, service_instance=service)
+    if token:
+        # Explicit token: just use get_authorizer (no multi-scope needed)
+        from mdf_agent.auth.globus import get_authorizer
+        get_authorizer(token=token, service_instance=service)
+    else:
+        scope, _rs = get_scopes_for_service(service)
+        # Request scopes upfront so one login covers publish, upload,
+        # and transfer operations.
+        get_authorizer_for_scopes([scope, DATA_MDF_SCOPE, TRANSFER_SCOPE])
     console.print("[green]Authentication ready[/green]")
     console.print(f"[dim]Token store:[/dim] {DEFAULT_TOKEN_PATH}")
     if token:

@@ -119,7 +119,10 @@ class MDFAgent:
         return self.repo.state.model_dump()
 
     def validate(self) -> Dict[str, List[str]]:
-        errors, warnings = validate_manifest(self.manifest)
+        has_committed = bool(
+            self.repo and any(c.staged_files for c in self.repo.state.commits)
+        )
+        errors, warnings = validate_manifest(self.manifest, has_committed_files=has_committed)
         return {"errors": errors, "warnings": warnings}
 
     def build_submission(self, test: bool = False, update: bool = False) -> Dict[str, Any]:

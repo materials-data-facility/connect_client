@@ -9,6 +9,7 @@ import httpx
 _V2_API_URLS = {
     "prod": "https://api.materialsdatafacility.org",
     "dev": "https://api-dev.materialsdatafacility.org",
+    "staging": "",  # Populated after deploy: https://<id>.execute-api.us-east-1.amazonaws.com/staging
     "local": "http://127.0.0.1:8080",
 }
 
@@ -22,15 +23,28 @@ def _api_url_for_service(service_instance: str) -> str:
         normalized = "prod"
     elif normalized == "development":
         normalized = "dev"
-    return _V2_API_URLS.get(normalized, _V2_API_URLS["prod"])
+    url = _V2_API_URLS.get(normalized, "")
+    if not url:
+        raise ValueError(
+            f"No API URL configured for service '{normalized}'. "
+            f"Use --api-url or set MDF_API_URL environment variable."
+        )
+    return url
 
 
 class BackendClient:
-    def __init__(self, base_url: str, token: Optional[str] = None, user_id: Optional[str] = None):
+    def __init__(
+        self,
+        base_url: str,
+        token: Optional[str] = None,
+        user_id: Optional[str] = None,
+        globus_data_token: Optional[str] = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self._client = httpx.Client(timeout=30.0)
         self._token = token
         self._user_id = user_id
+        self._globus_data_token = globus_data_token
 
     @classmethod
     def from_env(cls) -> "BackendClient":
@@ -73,13 +87,30 @@ class BackendClient:
             return cls(base_url=url)
 
         # Lazy import so token/dev-user workflows do not require globus_sdk.
-        from mdf_agent.auth.globus import get_authorizer
+        from mdf_agent.auth.globus import get_authorizer_for_scopes, get_scopes_for_service, DATA_MDF_SCOPE, NCSA_MDF_COLLECTION_UUID
 
-        authorizer = get_authorizer(service_instance=service_instance)
-        auth_header = authorizer.get_authorization_header()
+        scope, resource_server = get_scopes_for_service(service_instance)
+        authorizers = get_authorizer_for_scopes(
+            [scope, DATA_MDF_SCOPE],
+        )
+
         bearer_prefix = "Bearer "
-        bearer_token = auth_header[len(bearer_prefix):] if auth_header.startswith(bearer_prefix) else auth_header
-        return cls(base_url=url, token=bearer_token)
+
+        def _extract(authorizer):
+            if not authorizer:
+                return ""
+            h = authorizer.get_authorization_header()
+            return h[len(bearer_prefix):] if h.startswith(bearer_prefix) else h
+
+        # Use the auth.globus.org token as Bearer — it carries the openid
+        # scope so the backend can call userinfo() for identity.
+        openid_token = _extract(authorizers.get("auth.globus.org"))
+
+        # Data token for Globus HTTPS file operations (X-Globus-Token header)
+        # The resource server key is the collection UUID, not the hostname.
+        data_token = _extract(authorizers.get(NCSA_MDF_COLLECTION_UUID))
+
+        return cls(base_url=url, token=openid_token, globus_data_token=data_token or None)
 
     def close(self) -> None:
         self._client.close()
@@ -371,6 +402,8 @@ class BackendClient:
             headers["Authorization"] = f"Bearer {self._token}"
         elif self._user_id:
             headers["X-User-Id"] = self._user_id
+        if self._globus_data_token:
+            headers["X-Globus-Token"] = self._globus_data_token
         response = self._client.request(method, url, json=json_data, params=params, headers=headers)
         try:
             payload = response.json()

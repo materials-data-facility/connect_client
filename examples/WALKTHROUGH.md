@@ -159,6 +159,59 @@ Published successfully!
 
 ## Example 2: AI Agent Workflow (Claude Code)
 
+---
+
+## Example 3: Streaming (Local MVP)
+
+This example uses the local v2 backend to simulate streaming data from instruments.
+
+### Step 1: Start the local backend
+
+```bash
+cd cs/aws/v2
+./local_start.sh
+```
+
+Optional: start the flow simulator to auto-advance statuses:
+
+```bash
+START_FLOW_SIM=true ./local_start.sh
+```
+
+### Step 2: Create a stream
+
+```bash
+mdf stream create --title "Argonne XRD+TGA Stream" --lab-id anl-xrd-tga --api-url http://127.0.0.1:8080
+```
+
+### Step 3: Append files
+
+```bash
+mdf stream append --stream-id <STREAM_ID> --file-count 2 --total-bytes 24576 --api-url http://127.0.0.1:8080
+```
+
+### Step 4: Snapshot the stream into a dataset
+
+```bash
+mdf stream snapshot --stream-id <STREAM_ID> --api-url http://127.0.0.1:8080
+```
+
+### Step 5: Check status and close
+
+```bash
+mdf stream status --stream-id <STREAM_ID> --api-url http://127.0.0.1:8080
+mdf stream close --stream-id <STREAM_ID> --api-url http://127.0.0.1:8080
+```
+
+For a narrated demo, run:
+
+```bash
+./cs/aws/v2/local_lab_stream_demo.sh
+```
+
+The demo simulates an Argonne lab run (XRD + TGA), shows stream creation,
+file appends, status updates, and a final snapshot into a dataset record.
+
 You're using Claude Code and want to publish XRD data with zero manual work.
 
 ### The Conversation

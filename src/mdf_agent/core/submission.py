@@ -13,10 +13,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+from urllib.parse import urlparse, parse_qs, unquote
 import warnings
 
 import httpx
 
+from mdf_agent.auth.globus import NCSA_MDF_COLLECTION_UUID
 from mdf_agent.models.config import DataSource, ManifestConfig
 from mdf_agent.models.submission import Submission
 
@@ -47,6 +49,35 @@ def _expand_data_source(
     return [str(match.resolve()) for match in matches]
 
 
+def normalize_data_source(url: str) -> str:
+    """Normalize a data source URL to canonical format.
+
+    Converts Globus File Manager URLs and MDF data URLs to ``globus://`` URIs.
+    Other URLs (``globus://``, ``stream://``, external ``https://``) pass through.
+
+    Args:
+        url: Raw data source URL string.
+
+    Returns:
+        Normalized URL string.
+    """
+    parsed = urlparse(url)
+
+    # Globus File Manager URL → globus://collection_uuid/path
+    if parsed.hostname == "app.globus.org" and "/file-manager" in parsed.path:
+        qs = parse_qs(parsed.query)
+        origin_id = qs.get("origin_id", [None])[0]
+        origin_path = qs.get("origin_path", ["/"])[0]
+        if origin_id:
+            return f"globus://{origin_id}{unquote(origin_path)}"
+
+    # MDF data domain → globus://NCSA_MDF_COLLECTION_UUID/path
+    if parsed.hostname == "data.materialsdatafacility.org":
+        return f"globus://{NCSA_MDF_COLLECTION_UUID}{parsed.path}"
+
+    return url
+
+
 def resolve_data_sources(
     data_sources: Iterable[str | DataSource],
     root: Path,
@@ -70,8 +101,8 @@ def resolve_data_sources(
         if isinstance(source, DataSource):
             resolved.extend(_expand_data_source(source, root))
             continue
-        if source.startswith("globus://") or source.startswith("https://"):
-            resolved.append(source)
+        if source.startswith(("globus://", "https://", "stream://")):
+            resolved.append(normalize_data_source(source))
         else:
             resolved.append(str((root / source).resolve()))
     return resolved
@@ -107,6 +138,23 @@ def build_submission(
     metadata = manifest.to_metadata_payload()
 
     data_sources = resolve_data_sources(manifest.data_sources, root)
+
+    # Auto-populate data_sources from committed files if empty
+    if not data_sources and root:
+        mdf_dir = root / ".mdf"
+        if mdf_dir.exists():
+            from mdf_agent.core.repository import Repository
+            try:
+                repo = Repository.load(root)
+                committed_files: list[str] = []
+                for commit in repo.state.commits:
+                    committed_files.extend(commit.staged_files)
+                if committed_files:
+                    data_sources = [
+                        str((root / f).resolve()) for f in set(committed_files)
+                    ]
+            except Exception:
+                pass
 
     submission = Submission(
         title=metadata.get("title"),
