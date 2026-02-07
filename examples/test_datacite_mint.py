@@ -21,10 +21,10 @@ from v2.datacite import DataCiteClient
 def main():
     # Test credentials for api.test.datacite.org
     client = DataCiteClient(
-        username="globus",
-        password="fhy77$g3",
+        username="Globus.TEST",
+        password="NTroFAzElE",
         api_url="https://api.test.datacite.org",
-        prefix="10.18126",
+        prefix="10.23677",
         test_mode=True,
     )
 
