@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
 from mdf_agent.core.backend_client import BackendClient, _api_url_for_service
+from mdf_agent.auth.globus import NCSA_MDF_COLLECTION_UUID, get_scopes_for_service
 
 
 class _DummyResponse:
@@ -68,6 +71,41 @@ def test_authenticated_local_without_credentials_no_oauth(monkeypatch):
 
     client = BackendClient.authenticated(base_url="http://127.0.0.1:8080", service_instance="local")
     assert client._token is None
+    assert client._user_id is None
+
+
+def test_authenticated_uses_confidential_credentials(monkeypatch):
+    monkeypatch.delenv("MDF_CONNECT_TOKEN", raising=False)
+    monkeypatch.delenv("MDF_DEV_USER_ID", raising=False)
+    monkeypatch.setenv("MDF_CLIENT_ID", "client-id")
+    monkeypatch.setenv("MDF_CLIENT_SECRET", "client-secret")
+
+    _scope, resource_server = get_scopes_for_service("prod")
+    captured: Dict[str, Any] = {}
+
+    class _FakeConfidentialClient:
+        def __init__(self, client_id: str, client_secret: str):
+            captured["client_id"] = client_id
+            captured["client_secret"] = client_secret
+
+        def oauth2_client_credentials_tokens(self, requested_scopes: Optional[str] = None):
+            captured["requested_scopes"] = requested_scopes
+            return SimpleNamespace(
+                by_resource_server={
+                    resource_server: {"access_token": "service-token"},
+                    NCSA_MDF_COLLECTION_UUID: {"access_token": "data-token"},
+                }
+            )
+
+    fake_globus_sdk = SimpleNamespace(ConfidentialAppAuthClient=_FakeConfidentialClient)
+    monkeypatch.setitem(sys.modules, "globus_sdk", fake_globus_sdk)
+
+    client = BackendClient.authenticated(base_url="https://example.org", service_instance="prod")
+    assert captured["client_id"] == "client-id"
+    assert captured["client_secret"] == "client-secret"
+    assert "requested_scopes" in captured
+    assert client._token == "service-token"
+    assert client._globus_data_token == "data-token"
     assert client._user_id is None
 
 

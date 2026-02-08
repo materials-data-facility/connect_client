@@ -90,10 +90,32 @@ def status(
 @app.command("close")
 def close(
     stream_id: str = typer.Option(..., "--stream-id"),
+    mint_doi: Optional[bool] = typer.Option(None, "--mint-doi/--no-mint-doi"),
+    title: Optional[str] = typer.Option(None, "--title"),
+    description: Optional[str] = typer.Option(None, "--description"),
+    authors: Optional[Path] = typer.Option(None, "--authors", help="Path to JSON author list"),
+    keywords: Optional[Path] = typer.Option(None, "--keywords", help="Path to JSON keywords list"),
+    license: Optional[str] = typer.Option(None, "--license"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
 ):
+    authors_payload = None
+    if authors:
+        authors_payload = json.loads(authors.read_text(encoding="utf-8"))
+
+    keywords_payload = None
+    if keywords:
+        keywords_payload = json.loads(keywords.read_text(encoding="utf-8"))
+
     client = _client(api_url)
-    result = client.stream_close(stream_id)
+    result = client.stream_close(
+        stream_id=stream_id,
+        mint_doi=mint_doi,
+        title=title,
+        description=description,
+        authors=authors_payload,
+        keywords=keywords_payload,
+        license=license,
+    )
     client.close()
     _print(result)
 

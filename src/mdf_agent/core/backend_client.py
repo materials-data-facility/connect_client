@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any, Dict, Optional
+from urllib.parse import quote, unquote, urlparse
 
 import httpx
 
@@ -66,8 +68,9 @@ class BackendClient:
         Resolution order:
         1. Explicit token argument
         2. MDF_CONNECT_TOKEN env var
-        3. dev_user_id / MDF_DEV_USER_ID env var (X-User-Id)
-        4. Interactive Globus OAuth2 login
+        3. MDF_CLIENT_ID + MDF_CLIENT_SECRET env vars (confidential client flow)
+        4. dev_user_id / MDF_DEV_USER_ID env var (X-User-Id)
+        5. Interactive Globus OAuth2 login
         """
         url = base_url or _api_url_for_service(service_instance)
         normalized_service = (service_instance or "prod").strip().lower()
@@ -75,6 +78,40 @@ class BackendClient:
         resolved_token = token or os.environ.get("MDF_CONNECT_TOKEN")
         if resolved_token:
             return cls(base_url=url, token=resolved_token)
+
+        confidential_client_id = os.environ.get("MDF_CLIENT_ID")
+        confidential_client_secret = os.environ.get("MDF_CLIENT_SECRET")
+        if confidential_client_id and confidential_client_secret:
+            # Lazy import so token/dev-user workflows do not require globus_sdk.
+            import globus_sdk
+
+            from mdf_agent.auth.globus import (
+                DATA_MDF_SCOPE,
+                NCSA_MDF_COLLECTION_UUID,
+                get_scopes_for_service,
+            )
+
+            scope, resource_server = get_scopes_for_service(service_instance)
+            confidential_client = globus_sdk.ConfidentialAppAuthClient(
+                confidential_client_id,
+                confidential_client_secret,
+            )
+            token_response = confidential_client.oauth2_client_credentials_tokens(
+                requested_scopes=f"{scope} {DATA_MDF_SCOPE}",
+            )
+            by_resource_server = getattr(token_response, "by_resource_server", {}) or {}
+
+            def _extract_access_token(token_entry: Any) -> str:
+                if not token_entry:
+                    return ""
+                if isinstance(token_entry, dict):
+                    return token_entry.get("access_token", "")
+                return getattr(token_entry, "access_token", "")
+
+            service_token = _extract_access_token(by_resource_server.get(resource_server))
+            data_token = _extract_access_token(by_resource_server.get(NCSA_MDF_COLLECTION_UUID))
+            if service_token:
+                return cls(base_url=url, token=service_token, globus_data_token=data_token or None)
 
         resolved_user_id = dev_user_id or os.environ.get("MDF_DEV_USER_ID")
         if not resolved_user_id and normalized_service == "local":
@@ -89,7 +126,7 @@ class BackendClient:
         # Lazy import so token/dev-user workflows do not require globus_sdk.
         from mdf_agent.auth.globus import get_authorizer_for_scopes, get_scopes_for_service, DATA_MDF_SCOPE, NCSA_MDF_COLLECTION_UUID
 
-        scope, resource_server = get_scopes_for_service(service_instance)
+        scope, _resource_server = get_scopes_for_service(service_instance)
         authorizers = get_authorizer_for_scopes(
             [scope, DATA_MDF_SCOPE],
         )
@@ -115,6 +152,9 @@ class BackendClient:
     def close(self) -> None:
         self._client.close()
 
+    def health(self) -> Dict[str, Any]:
+        return self._request("GET", "/health")
+
     def submit(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/submit", json_data=payload)
 
@@ -125,6 +165,55 @@ class BackendClient:
     def submissions(self, organization: Optional[str] = None) -> Dict[str, Any]:
         params = {"organization": organization} if organization else None
         return self._request("GET", "/submissions", params=params)
+
+    def curation_pending(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        organization: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        params: Dict[str, Any] = {
+            "limit": limit,
+            "offset": offset,
+        }
+        if organization:
+            params["organization"] = organization
+        return self._request("GET", "/curation/pending", params=params)
+
+    def curation_detail(self, source_id: str, version: Optional[str] = None) -> Dict[str, Any]:
+        params = {"version": version} if version else None
+        return self._request("GET", f"/curation/{source_id}", params=params)
+
+    def curation_approve(
+        self,
+        source_id: str,
+        mint_doi: bool = True,
+        notes: Optional[str] = None,
+        metadata_updates: Optional[Dict[str, Any]] = None,
+        version: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"mint_doi": mint_doi}
+        if notes is not None:
+            payload["notes"] = notes
+        if metadata_updates is not None:
+            payload["metadata_updates"] = metadata_updates
+        if version:
+            payload["version"] = version
+        return self._request("POST", f"/curation/{source_id}/approve", json_data=payload)
+
+    def curation_reject(
+        self,
+        source_id: str,
+        reason: str,
+        suggestions: Optional[str] = None,
+        version: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"reason": reason}
+        if suggestions is not None:
+            payload["suggestions"] = suggestions
+        if version:
+            payload["version"] = version
+        return self._request("POST", f"/curation/{source_id}/reject", json_data=payload)
 
     def update_status(self, source_id: str, version: str, status: str) -> Dict[str, Any]:
         payload = {"source_id": source_id, "version": version, "status": status}
@@ -157,8 +246,29 @@ class BackendClient:
     def stream_status(self, stream_id: str) -> Dict[str, Any]:
         return self._request("GET", f"/stream/{stream_id}")
 
-    def stream_close(self, stream_id: str) -> Dict[str, Any]:
-        payload = {"stream_id": stream_id}
+    def stream_close(
+        self,
+        stream_id: str,
+        mint_doi: Optional[bool] = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        authors: Optional[list] = None,
+        keywords: Optional[list] = None,
+        license: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"stream_id": stream_id}
+        if mint_doi is not None:
+            payload["mint_doi"] = mint_doi
+        if title:
+            payload["title"] = title
+        if description:
+            payload["description"] = description
+        if authors is not None:
+            payload["authors"] = authors
+        if keywords is not None:
+            payload["keywords"] = keywords
+        if license:
+            payload["license"] = license
         return self._request("POST", f"/stream/{stream_id}/close", json_data=payload)
 
     def stream_snapshot(
@@ -352,6 +462,19 @@ class BackendClient:
             return self._request("GET", f"/stream/{stream_id}/files/{filename}/preview")
         return self._request("GET", f"/stream/{stream_id}/preview")
 
+    def dataset_preview(self, source_id: str) -> Dict[str, Any]:
+        return self._request("GET", f"/preview/{source_id}")
+
+    def dataset_files(self, source_id: str) -> Dict[str, Any]:
+        return self._request("GET", f"/preview/{source_id}/files")
+
+    def dataset_file_detail(self, source_id: str, path: str) -> Dict[str, Any]:
+        encoded_path = quote(path, safe="/")
+        return self._request("GET", f"/preview/{source_id}/files/{encoded_path}")
+
+    def dataset_sample(self, source_id: str) -> Dict[str, Any]:
+        return self._request("GET", f"/preview/{source_id}/sample")
+
     def stream_clone(
         self,
         stream_id: str,
@@ -371,23 +494,102 @@ class BackendClient:
         Returns:
             Dict with clone results
         """
-        # This is a client-side operation, not an API call
-        # Import clone module here to avoid circular imports
-        import sys
-        from pathlib import Path
+        import fnmatch
 
-        # Try to import from the aws backend
+        files_result = self.stream_list_files(stream_id)
+        if not files_result.get("success"):
+            return {
+                "success": False,
+                "stream_id": stream_id,
+                "error": files_result.get("error", "Failed to list stream files"),
+            }
+
+        destination = Path(dest_dir).expanduser().resolve()
+        destination.mkdir(parents=True, exist_ok=True)
+
+        downloaded = []
+        errors = []
+
+        for file_info in files_result.get("files", []):
+            path = str(file_info.get("path") or "")
+            filename = str(file_info.get("filename") or Path(path).name)
+            if not path:
+                errors.append({"file": filename or "<unknown>", "error": "Missing file path"})
+                continue
+
+            if file_filter and not (
+                fnmatch.fnmatch(filename, file_filter) or fnmatch.fnmatch(path, file_filter)
+            ):
+                continue
+
+            download_url_result = self.stream_get_download_url(stream_id, path)
+            if not download_url_result.get("success"):
+                errors.append({
+                    "file": filename,
+                    "error": download_url_result.get("error", "Failed to get download URL"),
+                })
+                continue
+
+            download_url = str(download_url_result.get("download_url") or "")
+            if not download_url:
+                errors.append({"file": filename, "error": "No download URL returned"})
+                continue
+
+            try:
+                content = self._download_stream_file(download_url, file_info)
+            except Exception as exc:
+                errors.append({"file": filename, "error": str(exc)})
+                continue
+
+            target_path = self._safe_output_path(destination, filename)
+            if target_path is None:
+                errors.append({"file": filename, "error": "Unsafe destination filename"})
+                continue
+
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_bytes(content)
+            downloaded.append({
+                "filename": filename,
+                "path": str(target_path),
+                "size_bytes": len(content),
+            })
+
+        return {
+            "success": len(errors) == 0,
+            "stream_id": stream_id,
+            "destination": str(destination),
+            "downloaded": len(downloaded),
+            "files": downloaded,
+            "errors": errors if errors else None,
+        }
+
+    def _safe_output_path(self, destination: Path, filename: str) -> Optional[Path]:
+        normalized = (filename or "").replace("\\", "/").lstrip("/")
+        if not normalized:
+            return None
+        candidate = (destination / normalized).resolve()
         try:
-            sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "cs" / "aws"))
-            from v2.clone import clone_stream
-            return clone_stream(
-                stream_id=stream_id,
-                dest_dir=dest_dir,
-                file_filter=file_filter,
-                verbose=True,
-            )
-        except ImportError:
-            return {"success": False, "error": "Clone module not available"}
+            candidate.relative_to(destination)
+        except ValueError:
+            return None
+        return candidate
+
+    def _download_stream_file(self, download_url: str, file_info: Dict[str, Any]) -> bytes:
+        parsed = urlparse(download_url)
+        if parsed.scheme == "file":
+            return Path(unquote(parsed.path)).read_bytes()
+
+        headers: Optional[Dict[str, str]] = None
+        storage_backend = str(file_info.get("storage_backend") or "").lower()
+        host = (parsed.hostname or "").lower()
+        if storage_backend == "globus" or host.endswith("materialsdatafacility.org"):
+            token = self._globus_data_token or self._token
+            if token:
+                headers = {"Authorization": f"Bearer {token}"}
+
+        response = self._client.get(download_url, headers=headers)
+        response.raise_for_status()
+        return response.content
 
     def _request(
         self,

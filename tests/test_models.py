@@ -196,6 +196,26 @@ class TestManifestConfig:
         assert manifest.external_url is None
         assert manifest.external_source is None
 
+    def test_to_metadata_payload_includes_author_name_parts(self):
+        manifest = ManifestConfig(
+            title="My Dataset",
+            authors=[
+                Author(
+                    name="Doe, Jane",
+                    given_name="Jane",
+                    family_name="Doe",
+                )
+            ],
+        )
+        payload = manifest.to_metadata_payload()
+        assert payload["authors"] == [
+            {
+                "name": "Doe, Jane",
+                "given_name": "Jane",
+                "family_name": "Doe",
+            }
+        ]
+
 
 class TestDataCiteCreatorParsing:
     """Tests for DataCite author name parsing."""

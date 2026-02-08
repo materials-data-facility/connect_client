@@ -239,6 +239,12 @@ class MDFAgent:
     def stream_close(
         self,
         stream_id: str,
+        mint_doi: Optional[bool] = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        authors: Optional[list] = None,
+        keywords: Optional[list] = None,
+        license: Optional[str] = None,
         api_url: Optional[str] = None,
         token: Optional[str] = None,
         service_instance: str = "prod",
@@ -250,7 +256,15 @@ class MDFAgent:
             service_instance=service_instance,
             dev_user_id=dev_user_id,
         )
-        result = client.stream_close(stream_id)
+        result = client.stream_close(
+            stream_id=stream_id,
+            mint_doi=mint_doi,
+            title=title,
+            description=description,
+            authors=authors,
+            keywords=keywords,
+            license=license,
+        )
         client.close()
         return result
 

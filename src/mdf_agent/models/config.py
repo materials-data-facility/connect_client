@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class Author(BaseModel):
     name: str
+    given_name: Optional[str] = None
+    family_name: Optional[str] = None
     affiliations: List[str] = Field(default_factory=list)
     orcid: Optional[str] = None
 
@@ -93,6 +95,10 @@ class ManifestConfig(BaseModel):
             for a in self.authors:
                 if isinstance(a, Author):
                     entry: Dict[str, Any] = {"name": a.name}
+                    if a.given_name:
+                        entry["given_name"] = a.given_name
+                    if a.family_name:
+                        entry["family_name"] = a.family_name
                     if a.affiliations:
                         entry["affiliations"] = a.affiliations
                     if a.orcid:

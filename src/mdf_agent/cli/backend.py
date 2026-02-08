@@ -40,6 +40,16 @@ def _print(result):
     typer.echo(json.dumps(result, indent=2))
 
 
+@app.command("health")
+def health(
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+):
+    client = _client(api_url)
+    result = client.health()
+    client.close()
+    _print(result)
+
+
 @app.command("submit")
 def submit(
     payload: Path = typer.Option(..., "--payload", help="Path to submission JSON"),
@@ -71,6 +81,79 @@ def submissions(
 ):
     client = _client(api_url)
     result = client.submissions(organization=organization)
+    client.close()
+    _print(result)
+
+
+@app.command("curation-pending")
+def curation_pending(
+    limit: int = typer.Option(50, "--limit"),
+    offset: int = typer.Option(0, "--offset"),
+    organization: Optional[str] = typer.Option(None, "--organization"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+):
+    client = _client(api_url)
+    result = client.curation_pending(limit=limit, offset=offset, organization=organization)
+    client.close()
+    _print(result)
+
+
+@app.command("curation-detail")
+def curation_detail(
+    source_id: str = typer.Option(..., "--source-id"),
+    version: Optional[str] = typer.Option(None, "--version"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+):
+    client = _client(api_url)
+    result = client.curation_detail(source_id, version=version)
+    client.close()
+    _print(result)
+
+
+@app.command("curation-approve")
+def curation_approve(
+    source_id: str = typer.Option(..., "--source-id"),
+    mint_doi: bool = typer.Option(True, "--mint-doi/--no-mint-doi"),
+    notes: Optional[str] = typer.Option(None, "--notes"),
+    metadata_updates: Optional[Path] = typer.Option(
+        None,
+        "--metadata-updates",
+        help="Path to JSON metadata updates",
+    ),
+    version: Optional[str] = typer.Option(None, "--version"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+):
+    metadata_payload = None
+    if metadata_updates:
+        metadata_payload = json.loads(metadata_updates.read_text(encoding="utf-8"))
+
+    client = _client(api_url)
+    result = client.curation_approve(
+        source_id=source_id,
+        mint_doi=mint_doi,
+        notes=notes,
+        metadata_updates=metadata_payload,
+        version=version,
+    )
+    client.close()
+    _print(result)
+
+
+@app.command("curation-reject")
+def curation_reject(
+    source_id: str = typer.Option(..., "--source-id"),
+    reason: str = typer.Option(..., "--reason"),
+    suggestions: Optional[str] = typer.Option(None, "--suggestions"),
+    version: Optional[str] = typer.Option(None, "--version"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+):
+    client = _client(api_url)
+    result = client.curation_reject(
+        source_id=source_id,
+        reason=reason,
+        suggestions=suggestions,
+        version=version,
+    )
     client.close()
     _print(result)
 
@@ -139,10 +222,32 @@ def stream_status(
 @app.command("stream-close")
 def stream_close(
     stream_id: str = typer.Option(..., "--stream-id"),
+    mint_doi: Optional[bool] = typer.Option(None, "--mint-doi/--no-mint-doi"),
+    title: Optional[str] = typer.Option(None, "--title"),
+    description: Optional[str] = typer.Option(None, "--description"),
+    authors: Optional[Path] = typer.Option(None, "--authors", help="Path to JSON author list"),
+    keywords: Optional[Path] = typer.Option(None, "--keywords", help="Path to JSON keywords list"),
+    license: Optional[str] = typer.Option(None, "--license"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
 ):
+    authors_payload = None
+    if authors:
+        authors_payload = json.loads(authors.read_text(encoding="utf-8"))
+
+    keywords_payload = None
+    if keywords:
+        keywords_payload = json.loads(keywords.read_text(encoding="utf-8"))
+
     client = _client(api_url)
-    result = client.stream_close(stream_id)
+    result = client.stream_close(
+        stream_id=stream_id,
+        mint_doi=mint_doi,
+        title=title,
+        description=description,
+        authors=authors_payload,
+        keywords=keywords_payload,
+        license=license,
+    )
     client.close()
     _print(result)
 
@@ -288,3 +393,29 @@ def cite(
         else:
             console.print(Panel(citation_text, title="APA Citation", border_style="green"))
         console.print()
+
+
+@app.command("preview")
+def preview(
+    source_id: str = typer.Argument(..., help="Dataset source ID"),
+    files: bool = typer.Option(False, "--files", help="List files in profile"),
+    sample: bool = typer.Option(False, "--sample", help="Show dataset sample"),
+    file_path: Optional[str] = typer.Option(None, "--file-path", help="Show details for a specific profile file"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+):
+    if file_path and (files or sample):
+        raise typer.BadParameter("--file-path cannot be combined with --files or --sample")
+    if files and sample:
+        raise typer.BadParameter("--files and --sample cannot be combined")
+
+    client = _client(api_url)
+    if file_path:
+        result = client.dataset_file_detail(source_id, file_path)
+    elif files:
+        result = client.dataset_files(source_id)
+    elif sample:
+        result = client.dataset_sample(source_id)
+    else:
+        result = client.dataset_preview(source_id)
+    client.close()
+    _print(result)
