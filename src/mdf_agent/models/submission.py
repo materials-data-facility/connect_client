@@ -30,6 +30,11 @@ class Submission(BaseModel):
     methods: Optional[List[str]] = None
     facility: Optional[str] = None
     fields_of_science: Optional[List[str]] = None
+    domains: Optional[List[str]] = None
+
+    external_doi: Optional[str] = None
+    external_url: Optional[str] = None
+    external_source: Optional[str] = None
 
     ml: Optional[Dict[str, Any]] = None
 
@@ -102,6 +107,16 @@ class Submission(BaseModel):
             payload["facility"] = self.facility
         if self.fields_of_science:
             payload["fields_of_science"] = self.fields_of_science
+        if self.domains:
+            payload["domains"] = self.domains
+
+        # External import provenance
+        if self.external_doi:
+            payload["external_doi"] = self.external_doi
+        if self.external_url:
+            payload["external_url"] = self.external_url
+        if self.external_source:
+            payload["external_source"] = self.external_source
 
         # ML metadata
         if self.ml:

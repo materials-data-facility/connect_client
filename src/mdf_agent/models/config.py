@@ -46,6 +46,12 @@ class ManifestConfig(BaseModel):
     organization: Optional[str] = None
     acl: Optional[List[str]] = None
     tags: Optional[List[str]] = None
+    domains: Optional[List[str]] = None
+
+    external_doi: Optional[str] = None
+    external_url: Optional[str] = None
+    external_source: Optional[str] = None
+
     services: Optional[Dict[str, Any]] = None
     projects: Optional[Dict[str, Any]] = None
     links: Optional[List[Dict[str, Any]]] = None
@@ -119,6 +125,16 @@ class ManifestConfig(BaseModel):
             payload["acl"] = self.acl
         if self.tags:
             payload["tags"] = self.tags
+        if self.domains:
+            payload["domains"] = self.domains
+
+        # External import provenance
+        if self.external_doi:
+            payload["external_doi"] = self.external_doi
+        if self.external_url:
+            payload["external_url"] = self.external_url
+        if self.external_source:
+            payload["external_source"] = self.external_source
 
         # Related works (from related_dois)
         if self.related_dois:

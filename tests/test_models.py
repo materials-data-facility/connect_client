@@ -153,6 +153,49 @@ class TestManifestConfig:
         assert manifest.organization == "CHiMaD"
         assert manifest.auto_discover is True
 
+    def test_manifest_with_domains(self):
+        """Manifest with domains field."""
+        manifest = ManifestConfig(
+            title="My Dataset",
+            authors=["Jane Doe"],
+            domains=["materials", "chemistry"],
+        )
+        assert manifest.domains == ["materials", "chemistry"]
+
+    def test_manifest_domains_none_by_default(self):
+        """Domains is None by default."""
+        manifest = ManifestConfig()
+        assert manifest.domains is None
+
+    def test_manifest_domains_single(self):
+        """Single domain in list."""
+        manifest = ManifestConfig(
+            title="My Dataset",
+            authors=["Jane Doe"],
+            domains=["biology"],
+        )
+        assert manifest.domains == ["biology"]
+
+    def test_manifest_with_external_import(self):
+        """Manifest with external import fields."""
+        manifest = ManifestConfig(
+            title="Imported Dataset",
+            authors=["Jane Doe"],
+            external_doi="10.5281/zenodo.1234567",
+            external_url="https://zenodo.org/record/1234567",
+            external_source="Zenodo",
+        )
+        assert manifest.external_doi == "10.5281/zenodo.1234567"
+        assert manifest.external_url == "https://zenodo.org/record/1234567"
+        assert manifest.external_source == "Zenodo"
+
+    def test_manifest_external_fields_none_by_default(self):
+        """External import fields are None by default."""
+        manifest = ManifestConfig()
+        assert manifest.external_doi is None
+        assert manifest.external_url is None
+        assert manifest.external_source is None
+
 
 class TestDataCiteCreatorParsing:
     """Tests for DataCite author name parsing."""
@@ -472,3 +515,89 @@ class TestSubmissionPayloadShape:
         assert isinstance(payload["update"], bool)
         assert isinstance(payload["mdf"], dict)
         assert isinstance(payload["tags"], list)
+
+    def test_payload_includes_domains(self):
+        """to_payload() includes domains when set."""
+        sub = Submission(domains=["materials", "chemistry"])
+        payload = sub.to_payload()
+        assert payload["domains"] == ["materials", "chemistry"]
+
+    def test_payload_excludes_domains_when_none(self):
+        """to_payload() excludes domains when not set."""
+        sub = Submission()
+        payload = sub.to_payload()
+        assert "domains" not in payload
+
+    def test_payload_includes_external_import(self):
+        """to_payload() includes external import fields when set."""
+        sub = Submission(
+            external_doi="10.5281/zenodo.1234567",
+            external_url="https://zenodo.org/record/1234567",
+            external_source="Zenodo",
+        )
+        payload = sub.to_payload()
+        assert payload["external_doi"] == "10.5281/zenodo.1234567"
+        assert payload["external_url"] == "https://zenodo.org/record/1234567"
+        assert payload["external_source"] == "Zenodo"
+
+    def test_payload_excludes_external_import_when_none(self):
+        """to_payload() excludes external import fields when not set."""
+        sub = Submission()
+        payload = sub.to_payload()
+        assert "external_doi" not in payload
+        assert "external_url" not in payload
+        assert "external_source" not in payload
+
+
+class TestToMetadataPayload:
+    """Tests for ManifestConfig.to_metadata_payload()."""
+
+    def test_domains_in_payload(self):
+        """Domains flow through to metadata payload."""
+        manifest = ManifestConfig(
+            title="Test",
+            authors=["Jane Doe"],
+            domains=["materials", "chemistry"],
+        )
+        payload = manifest.to_metadata_payload()
+        assert payload["domains"] == ["materials", "chemistry"]
+
+    def test_domains_omitted_when_none(self):
+        """Domains not in payload when not set."""
+        manifest = ManifestConfig(title="Test", authors=["Jane Doe"])
+        payload = manifest.to_metadata_payload()
+        assert "domains" not in payload
+
+    def test_external_import_in_payload(self):
+        """External import fields flow through to metadata payload."""
+        manifest = ManifestConfig(
+            title="Test",
+            authors=["Jane Doe"],
+            external_doi="10.5281/zenodo.1234567",
+            external_url="https://zenodo.org/record/1234567",
+            external_source="Zenodo",
+        )
+        payload = manifest.to_metadata_payload()
+        assert payload["external_doi"] == "10.5281/zenodo.1234567"
+        assert payload["external_url"] == "https://zenodo.org/record/1234567"
+        assert payload["external_source"] == "Zenodo"
+
+    def test_external_import_omitted_when_none(self):
+        """External import fields not in payload when not set."""
+        manifest = ManifestConfig(title="Test", authors=["Jane Doe"])
+        payload = manifest.to_metadata_payload()
+        assert "external_doi" not in payload
+        assert "external_url" not in payload
+        assert "external_source" not in payload
+
+    def test_partial_external_import(self):
+        """Only set external import fields appear in payload."""
+        manifest = ManifestConfig(
+            title="Test",
+            authors=["Jane Doe"],
+            external_doi="10.5281/zenodo.1234567",
+        )
+        payload = manifest.to_metadata_payload()
+        assert payload["external_doi"] == "10.5281/zenodo.1234567"
+        assert "external_url" not in payload
+        assert "external_source" not in payload
