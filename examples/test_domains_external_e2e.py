@@ -64,8 +64,9 @@ def main():
 
     status1 = client.status(sid1)
     sub1 = status1.get("submission", {})
+    mdata1 = sub1.get("dataset_mdata", {})
     print(f"  Status:  {sub1.get('status')}")
-    print(f"  Domains: {sub1.get('domains')}")
+    print(f"  Domains: {mdata1.get('domains')}")
     print()
 
     # ── Step 2: Submit with external import fields ──────────────────────
@@ -95,10 +96,11 @@ def main():
 
     status2 = client.status(sid2)
     sub2 = status2.get("submission", {})
+    mdata2 = sub2.get("dataset_mdata", {})
     print(f"  Status:          {sub2.get('status')}")
-    print(f"  external_doi:    {sub2.get('external_doi')}")
-    print(f"  external_url:    {sub2.get('external_url')}")
-    print(f"  external_source: {sub2.get('external_source')}")
+    print(f"  external_doi:    {mdata2.get('external_doi')}")
+    print(f"  external_url:    {mdata2.get('external_url')}")
+    print(f"  external_source: {mdata2.get('external_source')}")
     print()
 
     # ── Step 3: Submit with both domains and external import ────────────
@@ -129,11 +131,12 @@ def main():
 
     status3 = client.status(sid3)
     sub3 = status3.get("submission", {})
+    mdata3 = sub3.get("dataset_mdata", {})
     print(f"  Status:          {sub3.get('status')}")
-    print(f"  Domains:         {sub3.get('domains')}")
-    print(f"  external_doi:    {sub3.get('external_doi')}")
-    print(f"  external_url:    {sub3.get('external_url')}")
-    print(f"  external_source: {sub3.get('external_source')}")
+    print(f"  Domains:         {mdata3.get('domains')}")
+    print(f"  external_doi:    {mdata3.get('external_doi')}")
+    print(f"  external_url:    {mdata3.get('external_url')}")
+    print(f"  external_source: {mdata3.get('external_source')}")
     print()
 
     # ── Summary ─────────────────────────────────────────────────────────
@@ -141,19 +144,19 @@ def main():
 
     checks = [
         ("Test 1: domains round-trip",
-         sub1.get("domains") == ["materials", "chemistry"]),
+         mdata1.get("domains") == ["materials", "chemistry"]),
         ("Test 2: external_doi round-trip",
-         sub2.get("external_doi") == "10.5281/zenodo.1234567"),
+         mdata2.get("external_doi") == "10.5281/zenodo.1234567"),
         ("Test 2: external_url round-trip",
-         sub2.get("external_url") == "https://zenodo.org/record/1234567"),
+         mdata2.get("external_url") == "https://zenodo.org/record/1234567"),
         ("Test 2: external_source round-trip",
-         sub2.get("external_source") == "Zenodo"),
+         mdata2.get("external_source") == "Zenodo"),
         ("Test 3: combined domains",
-         sub3.get("domains") == ["biology"]),
+         mdata3.get("domains") == ["biology"]),
         ("Test 3: combined external_doi",
-         sub3.get("external_doi") == "10.5061/dryad.abc123"),
+         mdata3.get("external_doi") == "10.5061/dryad.abc123"),
         ("Test 3: combined external_source",
-         sub3.get("external_source") == "Dryad"),
+         mdata3.get("external_source") == "Dryad"),
     ]
 
     for label, passed in checks:
