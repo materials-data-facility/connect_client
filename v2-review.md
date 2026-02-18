@@ -653,3 +653,125 @@ Additional validation:
   - Result: success
 
 All phases in the `serene-enchanting-planet` plan are now implemented in code.
+
+## Part II + III implementation pass (client sync + agentic optimization)
+
+Date: February 7, 2026
+Scope: `src/mdf_agent/*` and `tests/*` in the client repo.
+
+### E1) BackendClient sync with server endpoints
+
+Implemented in `src/mdf_agent/core/backend_client.py`:
+
+- Added health method:
+  - `health()` -> `GET /health`
+- Added curation methods:
+  - `curation_pending(limit, offset, organization)` -> `GET /curation/pending`
+  - `curation_detail(source_id, version)` -> `GET /curation/{source_id}`
+  - `curation_approve(source_id, mint_doi, notes, metadata_updates, version)` -> `POST /curation/{source_id}/approve`
+  - `curation_reject(source_id, reason, suggestions, version)` -> `POST /curation/{source_id}/reject`
+- Added dataset preview methods:
+  - `dataset_preview(source_id)` -> `GET /preview/{source_id}`
+  - `dataset_files(source_id)` -> `GET /preview/{source_id}/files`
+  - `dataset_file_detail(source_id, path)` -> `GET /preview/{source_id}/files/{path}` (with URL encoding)
+  - `dataset_sample(source_id)` -> `GET /preview/{source_id}/sample`
+- Expanded stream close payload:
+  - `stream_close(stream_id, mint_doi, title, description, authors, keywords, license)`
+- Replaced `stream_clone` server import hack with pure client clone flow:
+  - list files -> get download URL per file -> download via `httpx` -> write locally
+
+### E2) Headless confidential client auth path
+
+Implemented in `src/mdf_agent/core/backend_client.py` inside `authenticated()`:
+
+- Added auth resolution step between bearer token and dev-user fallback:
+  - uses `MDF_CLIENT_ID` + `MDF_CLIENT_SECRET`
+  - obtains OAuth client-credentials tokens via `globus_sdk.ConfidentialAppAuthClient`
+  - uses service token as Bearer and data token as `X-Globus-Token` when available
+
+Resolution order now:
+1. Explicit token / `MDF_CONNECT_TOKEN`
+2. Confidential credentials (`MDF_CLIENT_ID` + `MDF_CLIENT_SECRET`)
+3. Dev user (`dev_user_id` / `MDF_DEV_USER_ID`)
+4. Interactive login
+
+### E3) Manifest author model enhancements
+
+Implemented in `src/mdf_agent/models/config.py`:
+
+- Added optional `Author.given_name` and `Author.family_name`
+- `ManifestConfig.to_metadata_payload()` now propagates both fields in author entries
+
+### E4) CLI additions for backend sync
+
+Implemented in `src/mdf_agent/cli/backend.py`:
+
+- Added commands:
+  - `health`
+  - `curation-pending`
+  - `curation-detail`
+  - `curation-approve`
+  - `curation-reject`
+  - `preview` (profile, files, file detail, sample)
+- Updated `stream-close` to accept DOI/metadata close-time fields.
+
+Also propagated close-time fields in `src/mdf_agent/cli/stream.py`.
+
+### E5) Agentic handlers and normalization
+
+Implemented in `src/mdf_agent/skill/handlers.py`:
+
+- Added `@agent_safe` decorator and applied it across handlers
+- Added curation handlers:
+  - `curation_list_pending`
+  - `curation_review`
+  - `curation_approve`
+  - `curation_reject`
+- Added discovery/status handlers:
+  - `check_status`
+  - `list_submissions`
+  - `search_datasets`
+  - `get_citation`
+  - `get_card`
+  - `dataset_preview`
+  - `dataset_sample`
+  - `health_check`
+- Kept existing handler coverage (`scan_folder`, `publish`, stream operations) and normalized failures to structured dicts.
+
+### E6) Tools registry and exports
+
+- Added `src/mdf_agent/skill/mdf_tools.py` with flat `TOOLS` mapping for agentic/MCP use.
+- Updated package export in `src/mdf_agent/__init__.py` to expose `BackendClient`.
+
+### E7) Tests added/updated
+
+Added:
+
+- `tests/test_backend_client_sync.py`
+  - covers all 9 new sync methods
+  - covers expanded `stream_close` payload
+  - covers rewritten `stream_clone` flow
+
+Updated:
+
+- `tests/test_backend_client_auth.py`
+  - added confidential credentials auth-path test
+- `tests/test_models.py`
+  - added author name-parts payload propagation test
+
+### E8) Validation run
+
+Commands executed:
+
+- `python -m pytest tests/test_backend_client_sync.py -v`
+  - Result: `11 passed`
+- `python -m pytest tests/test_backend_client_auth.py -v`
+  - Result: `7 passed`
+- `python -m pytest tests/test_models.py -k "author_name_parts or TestAuthor" -v`
+  - Result: `4 passed`
+
+No failures in this pass.
+
+### E9) Scope note
+
+This pass intentionally covered plan Parts II and III only. Part I (server search wiring/deploy) and Part IV (server cleanup/CORS/SSM production credential hardening) were not changed in this implementation.
