@@ -525,16 +525,16 @@ def search(
         table = Table(show_header=True, header_style="bold")
         table.add_column("#", style="dim", width=3)
         table.add_column("Type", width=8)
-        table.add_column("Title")
-        table.add_column("ID")
-        table.add_column("Status", style="dim")
+        table.add_column("Title", max_width=40)
+        table.add_column("ID", no_wrap=True)
+        table.add_column("Status", style="dim", no_wrap=True)
 
         for i, item in enumerate(result["results"], 1):
             if item.get("type") == "dataset":
                 table.add_row(
                     str(i),
                     "[blue]dataset[/blue]",
-                    item.get("title", "Untitled")[:40],
+                    item.get("title", "Untitled"),
                     f"{item.get('source_id')} v{item.get('version')}",
                     item.get("status", ""),
                 )
@@ -542,7 +542,7 @@ def search(
                 table.add_row(
                     str(i),
                     "[green]stream[/green]",
-                    item.get("title", "Untitled")[:40],
+                    item.get("title", "Untitled"),
                     item.get("stream_id", ""),
                     f"{item.get('file_count', 0)} files",
                 )
@@ -585,16 +585,16 @@ def pending(
     console.print(f"\n[bold]Pending curation ({len(submissions)}):[/bold]\n")
     table = Table(show_header=True, header_style="bold")
     table.add_column("#", style="dim", width=3)
-    table.add_column("Source ID")
-    table.add_column("Title")
-    table.add_column("Version", style="dim")
-    table.add_column("Submitted", style="dim")
+    table.add_column("Source ID", no_wrap=True)
+    table.add_column("Title", max_width=40)
+    table.add_column("Version", style="dim", no_wrap=True)
+    table.add_column("Submitted", style="dim", no_wrap=True)
 
     for i, sub in enumerate(submissions, 1):
         table.add_row(
             str(i),
             sub.get("source_id", ""),
-            (sub.get("title") or "Untitled")[:40],
+            sub.get("title") or "Untitled",
             sub.get("version", ""),
             (sub.get("submitted_at") or sub.get("created_at") or "")[:19],
         )
