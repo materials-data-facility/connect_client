@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import warnings
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from mdf_agent.core.agent import MDFAgent
-from mdf_agent.core.submission import submit_submission
 from mdf_agent.skill import handlers as skill_handlers
 
 
@@ -154,33 +152,3 @@ def test_skill_stream_handlers_use_authenticated_client(monkeypatch):
     assert captured["dev_user_id"] == "dev-user"
 
 
-def test_submit_submission_emits_deprecation_warning(monkeypatch):
-    class _FakeResponse:
-        status_code = 200
-        text = ""
-
-        @staticmethod
-        def json():
-            return {"source_id": "abc"}
-
-    class _FakeHTTPClient:
-        def __init__(self, timeout=30.0):
-            self.timeout = timeout
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def post(self, url, json=None, headers=None):
-            return _FakeResponse()
-
-    monkeypatch.setattr("mdf_agent.core.submission.httpx.Client", _FakeHTTPClient)
-
-    with warnings.catch_warnings(record=True) as recorded:
-        warnings.simplefilter("always")
-        result = submit_submission({"title": "x"})
-
-    assert result["success"] is True
-    assert any(isinstance(item.message, DeprecationWarning) for item in recorded)

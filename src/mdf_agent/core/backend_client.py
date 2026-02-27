@@ -412,6 +412,10 @@ class BackendClient:
         """
         return self._request("POST", f"/stream/{stream_id}/download-url", json_data={"path": path})
 
+    def versions(self, source_id: str) -> Dict[str, Any]:
+        """Get version history for a dataset."""
+        return self._request("GET", f"/versions/{source_id}")
+
     def get_card(self, source_id: str, version: Optional[str] = None) -> Dict[str, Any]:
         """Get a dataset preview card."""
         params = {"version": version} if version else None
@@ -598,6 +602,9 @@ class BackendClient:
         response.raise_for_status()
         return response.content
 
+    _RETRY_STATUSES = {429, 502, 503, 504}
+    _MAX_RETRIES = 3
+
     def _request(
         self,
         method: str,
@@ -605,6 +612,8 @@ class BackendClient:
         json_data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        import time
+
         url = f"{self.base_url}{path}"
         headers: Dict[str, str] = {}
         if self._token:
@@ -613,15 +622,40 @@ class BackendClient:
             headers["X-User-Id"] = self._user_id
         if self._globus_data_token:
             headers["X-Globus-Token"] = self._globus_data_token
-        response = self._client.request(method, url, json=json_data, params=params, headers=headers)
-        try:
-            payload = response.json()
-        except Exception:
-            return {"success": False, "error": f"Invalid response: {response.text}"}
 
-        if isinstance(payload, dict) and "body" in payload and isinstance(payload["body"], str):
+        last_exc: Optional[Exception] = None
+        for attempt in range(self._MAX_RETRIES + 1):
             try:
-                return json.loads(payload["body"])
+                response = self._client.request(method, url, json=json_data, params=params, headers=headers)
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                last_exc = exc
+                if attempt < self._MAX_RETRIES:
+                    time.sleep(2 ** attempt)
+                    continue
+                return {"success": False, "error": f"Connection failed after {self._MAX_RETRIES + 1} attempts: {exc}"}
+
+            if response.status_code in self._RETRY_STATUSES and attempt < self._MAX_RETRIES:
+                retry_after = response.headers.get("Retry-After")
+                if retry_after:
+                    try:
+                        delay = float(retry_after)
+                    except ValueError:
+                        delay = 2 ** attempt
+                else:
+                    delay = 2 ** attempt
+                time.sleep(delay)
+                continue
+
+            try:
+                payload = response.json()
             except Exception:
-                return payload
-        return payload
+                return {"success": False, "error": f"Invalid response: {response.text}"}
+
+            if isinstance(payload, dict) and "body" in payload and isinstance(payload["body"], str):
+                try:
+                    return json.loads(payload["body"])
+                except Exception:
+                    return payload
+            return payload
+
+        return {"success": False, "error": f"Request failed after {self._MAX_RETRIES + 1} attempts"}

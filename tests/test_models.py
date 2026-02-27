@@ -463,13 +463,12 @@ class TestSubmission:
 
     def test_to_payload_minimal(self):
         """to_payload() with minimal data."""
-        sub = Submission(dc={"titles": [{"title": "Test"}]}, data_sources=["https://example.com/data"])
+        sub = Submission(title="Test", data_sources=["https://example.com/data"])
         payload = sub.to_payload()
-        assert payload["dc"] == {"titles": [{"title": "Test"}]}
+        assert payload["title"] == "Test"
         assert payload["data_sources"] == ["https://example.com/data"]
         assert payload["test"] is False
         assert payload["update"] is False
-        assert payload["mdf"] == {}
         assert payload["update_metadata_only"] is False
 
     def test_to_payload_excludes_none(self):
@@ -511,29 +510,27 @@ class TestSubmissionPayloadShape:
 
     def test_payload_has_required_keys(self):
         """Payload has all required top-level keys."""
-        sub = Submission(dc={"titles": []}, data_sources=["https://example.com"])
+        sub = Submission(title="Test", data_sources=["https://example.com"])
         payload = sub.to_payload()
-        assert "dc" in payload
+        assert "title" in payload
         assert "data_sources" in payload
         assert "test" in payload
         assert "update" in payload
-        assert "mdf" in payload
         assert "update_metadata_only" in payload
 
     def test_payload_data_types(self):
         """Payload values have correct types."""
         sub = Submission(
-            dc={"titles": [{"title": "Test"}]},
+            title="Test",
             data_sources=["https://example.com"],
             test=True,
             tags=["tag1"],
         )
         payload = sub.to_payload()
-        assert isinstance(payload["dc"], dict)
+        assert isinstance(payload["title"], str)
         assert isinstance(payload["data_sources"], list)
         assert isinstance(payload["test"], bool)
         assert isinstance(payload["update"], bool)
-        assert isinstance(payload["mdf"], dict)
         assert isinstance(payload["tags"], list)
 
     def test_payload_includes_domains(self):

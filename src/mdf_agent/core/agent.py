@@ -129,6 +129,10 @@ def _upload_local_files(
     return updated if updated else data_sources
 
 
+_UPLOAD_MAX_RETRIES = 3
+_UPLOAD_RETRY_STATUSES = {502, 503, 504}
+
+
 def _https_put_file(
     local_path: Path,
     dest_path: str,
@@ -138,11 +142,15 @@ def _https_put_file(
     """Upload a single file via streaming HTTPS PUT and return its globus:// URI.
 
     Reads the file in 8 MB chunks to avoid loading entire files into memory.
+    Retries on 502/503/504 and connection errors up to 3 times.
     """
+    import os
+    import time
     import httpx
 
     url = f"{_MDF_HTTPS_BASE}{dest_path}"
     file_size = local_path.stat().st_size
+    ssl_verify = os.environ.get("MDF_SSL_VERIFY", "false").lower() not in ("false", "0", "no")
 
     def file_stream():
         bytes_sent = 0
@@ -157,21 +165,35 @@ def _https_put_file(
                 yield chunk
 
     timeout = httpx.Timeout(connect=30, read=300, write=300, pool=30)
-    with httpx.Client(timeout=timeout, verify=False) as client:
-        resp = client.put(
-            url,
-            content=file_stream(),
-            headers={
-                "Authorization": f"Bearer {data_token}",
-                "Content-Type": "application/octet-stream",
-                "Content-Length": str(file_size),
-            },
-        )
-        if resp.status_code in (200, 201, 204):
-            return f"globus://{_NCSA_MDF_COLLECTION_UUID}{dest_path}"
-        raise RuntimeError(
-            f"Failed to upload {local_path.name}: HTTP {resp.status_code} {resp.text}"
-        )
+
+    for attempt in range(_UPLOAD_MAX_RETRIES + 1):
+        try:
+            with httpx.Client(timeout=timeout, verify=ssl_verify) as client:
+                resp = client.put(
+                    url,
+                    content=file_stream(),
+                    headers={
+                        "Authorization": f"Bearer {data_token}",
+                        "Content-Type": "application/octet-stream",
+                        "Content-Length": str(file_size),
+                    },
+                )
+                if resp.status_code in (200, 201, 204):
+                    return f"globus://{_NCSA_MDF_COLLECTION_UUID}{dest_path}"
+                if resp.status_code in _UPLOAD_RETRY_STATUSES and attempt < _UPLOAD_MAX_RETRIES:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise RuntimeError(
+                    f"Failed to upload {local_path.name}: HTTP {resp.status_code} {resp.text}"
+                )
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            if attempt < _UPLOAD_MAX_RETRIES:
+                time.sleep(2 ** attempt)
+                continue
+            raise RuntimeError(
+                f"Failed to upload {local_path.name} after {_UPLOAD_MAX_RETRIES + 1} attempts: {exc}"
+            ) from exc
+    return None
 
 
 class MDFAgent:
@@ -327,6 +349,153 @@ class MDFAgent:
         if self.manifest.data_sources is None:
             self.manifest.data_sources = []
         self.manifest.data_sources.append(source)
+
+    # Search, curation, and discovery helpers
+
+    def search(
+        self,
+        query: str,
+        search_type: str = "all",
+        limit: int = 20,
+        api_url: Optional[str] = None,
+        token: Optional[str] = None,
+        service_instance: str = "prod",
+        dev_user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Search datasets and streams."""
+        client = BackendClient.authenticated(
+            base_url=api_url,
+            token=token,
+            service_instance=service_instance,
+            dev_user_id=dev_user_id,
+        )
+        result = client.search(query, search_type=search_type, limit=limit)
+        client.close()
+        return result
+
+    def pending(
+        self,
+        limit: int = 50,
+        organization: Optional[str] = None,
+        api_url: Optional[str] = None,
+        token: Optional[str] = None,
+        service_instance: str = "prod",
+        dev_user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """List datasets pending curation."""
+        client = BackendClient.authenticated(
+            base_url=api_url,
+            token=token,
+            service_instance=service_instance,
+            dev_user_id=dev_user_id,
+        )
+        result = client.curation_pending(limit=limit, organization=organization)
+        client.close()
+        return result
+
+    def approve(
+        self,
+        source_id: str,
+        mint_doi: bool = True,
+        notes: Optional[str] = None,
+        version: Optional[str] = None,
+        api_url: Optional[str] = None,
+        token: Optional[str] = None,
+        service_instance: str = "prod",
+        dev_user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Approve a dataset for publication."""
+        client = BackendClient.authenticated(
+            base_url=api_url,
+            token=token,
+            service_instance=service_instance,
+            dev_user_id=dev_user_id,
+        )
+        result = client.curation_approve(source_id=source_id, mint_doi=mint_doi, notes=notes, version=version)
+        client.close()
+        return result
+
+    def reject(
+        self,
+        source_id: str,
+        reason: str,
+        suggestions: Optional[str] = None,
+        version: Optional[str] = None,
+        api_url: Optional[str] = None,
+        token: Optional[str] = None,
+        service_instance: str = "prod",
+        dev_user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Reject a dataset and return to submitter."""
+        client = BackendClient.authenticated(
+            base_url=api_url,
+            token=token,
+            service_instance=service_instance,
+            dev_user_id=dev_user_id,
+        )
+        result = client.curation_reject(source_id=source_id, reason=reason, suggestions=suggestions, version=version)
+        client.close()
+        return result
+
+    def versions(
+        self,
+        source_id: str,
+        api_url: Optional[str] = None,
+        token: Optional[str] = None,
+        service_instance: str = "prod",
+        dev_user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get version history for a dataset."""
+        client = BackendClient.authenticated(
+            base_url=api_url,
+            token=token,
+            service_instance=service_instance,
+            dev_user_id=dev_user_id,
+        )
+        result = client.versions(source_id)
+        client.close()
+        return result
+
+    def show(
+        self,
+        source_id: str,
+        version: Optional[str] = None,
+        api_url: Optional[str] = None,
+        token: Optional[str] = None,
+        service_instance: str = "prod",
+        dev_user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get dataset preview card."""
+        client = BackendClient.authenticated(
+            base_url=api_url,
+            token=token,
+            service_instance=service_instance,
+            dev_user_id=dev_user_id,
+        )
+        result = client.get_card(source_id, version=version)
+        client.close()
+        return result
+
+    def cite(
+        self,
+        source_id: str,
+        format: str = "all",
+        version: Optional[str] = None,
+        api_url: Optional[str] = None,
+        token: Optional[str] = None,
+        service_instance: str = "prod",
+        dev_user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get citation for a dataset."""
+        client = BackendClient.authenticated(
+            base_url=api_url,
+            token=token,
+            service_instance=service_instance,
+            dev_user_id=dev_user_id,
+        )
+        result = client.get_citation(source_id, format=format, version=version)
+        client.close()
+        return result
 
     # Streaming helpers
     def stream_create(

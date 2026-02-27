@@ -14,18 +14,10 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse, parse_qs, unquote
-import warnings
-
-import httpx
 
 from mdf_agent.auth.globus import NCSA_MDF_COLLECTION_UUID
 from mdf_agent.models.config import DataSource, ManifestConfig
 from mdf_agent.models.submission import Submission
-
-# MDF Connect API endpoints
-CONNECT_SERVICE_LOC = "https://publish-prod.materialsdatafacility.org"
-CONNECT_DEV_LOC = "https://publish-dev.materialsdatafacility.org"
-CONNECT_EXTRACT_ROUTE = "/submit"
 
 
 def _expand_data_source(
@@ -195,70 +187,3 @@ def build_submission(
     return payload
 
 
-def submit_submission(
-    payload: Dict[str, Any],
-    authorizer: Optional[Any] = None,
-    service_instance: str = "prod",
-    timeout: float = 30.0,
-) -> Dict[str, Any]:
-    """Submit a payload to MDF Connect.
-
-    Posts the submission payload to the MDF Connect API and handles
-    authentication, retries on auth failure, and response parsing.
-
-    Args:
-        payload: The submission payload (from build_submission).
-        authorizer: Globus authorizer for authentication. If None, submits
-            without authentication (will likely fail).
-        service_instance: "prod" for production, "dev" for development.
-        timeout: HTTP request timeout in seconds.
-
-    Returns:
-        Dict with keys:
-        - success: bool indicating if submission succeeded
-        - source_id: str with dataset ID (if successful)
-        - error: str with error message (if failed)
-        - response: dict with full API response (if successful)
-    """
-    warnings.warn(
-        "submit_submission() is deprecated; use BackendClient.authenticated(...).submit(payload) instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-    if service_instance in ("prod", "production", None):
-        service_loc = CONNECT_SERVICE_LOC
-    elif service_instance in ("dev", "development"):
-        service_loc = CONNECT_DEV_LOC
-    else:
-        raise ValueError("service_instance must be 'prod' or 'dev'")
-
-    headers: Dict[str, str] = {}
-    if authorizer is not None:
-        headers["Authorization"] = authorizer.get_authorization_header()
-
-    url = f"{service_loc}{CONNECT_EXTRACT_ROUTE}"
-    with httpx.Client(timeout=timeout) as client:
-        res = client.post(url, json=payload, headers=headers)
-        if res.status_code in (401, 403) and authorizer is not None:
-            authorizer.handle_missing_authorization()
-            headers["Authorization"] = authorizer.get_authorization_header()
-            res = client.post(url, json=payload, headers=headers)
-
-    try:
-        data = res.json()
-    except Exception:
-        return {
-            "success": False,
-            "source_id": None,
-            "error": f"Error decoding {res.status_code} response: {res.text}",
-        }
-
-    if res.status_code < 300:
-        return {"success": True, "source_id": data.get("source_id"), "response": data}
-
-    return {
-        "success": False,
-        "source_id": None,
-        "error": f"Error {res.status_code} submitting dataset: {data}",
-    }

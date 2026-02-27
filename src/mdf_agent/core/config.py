@@ -100,6 +100,26 @@ class GlobalConfig:
         return self._data
 
 
+_VALID_SERVICES = {"prod", "staging", "dev", "local"}
+
+
+def validate_config_value(key: str, value: str) -> Optional[str]:
+    """Validate a config value for known keys.
+
+    Returns a warning message if the value is suspect, or None if valid.
+    Unknown keys pass through without validation.
+    """
+    import re
+
+    if key == "defaults.service":
+        if value.lower() not in _VALID_SERVICES:
+            return f"Unknown service '{value}'. Expected one of: {', '.join(sorted(_VALID_SERVICES))}"
+    elif key == "user.email":
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", value):
+            return f"'{value}' doesn't look like a valid email address"
+    return None
+
+
 def resolve_service(explicit: Optional[str]) -> str:
     """Resolve the service instance: explicit flag > config default > 'staging'."""
     if explicit:

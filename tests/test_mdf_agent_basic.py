@@ -16,11 +16,10 @@ def test_build_submission_shape(tmp_path: Path):
 
     payload = agent.build_submission(test=True, update=False)
 
-    assert payload["dc"]["titles"][0]["title"] == "Test Dataset"
+    assert payload["title"] == "Test Dataset"
     assert payload["data_sources"]
     assert payload["test"] is True
     assert payload["update"] is False
-    assert "mdf" in payload
     assert "update_metadata_only" in payload
 
 

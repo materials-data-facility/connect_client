@@ -32,6 +32,12 @@ def set_value(
     value: str = typer.Argument(..., help="Value to set"),
 ):
     """Set a configuration value."""
+    from mdf_agent.core.config import validate_config_value
+
+    warning = validate_config_value(key, value)
+    if warning:
+        console.print(f"[yellow]Warning:[/yellow] {warning}")
+
     cfg = GlobalConfig()
     cfg.set(key, value)
     console.print(f"[green]Set[/green] {key} = {value}")

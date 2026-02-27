@@ -9,9 +9,11 @@ from mdf_agent.auth.globus import NCSA_MDF_COLLECTION_UUID, get_scopes_for_servi
 
 
 class _DummyResponse:
-    def __init__(self, payload: Dict[str, Any]):
+    def __init__(self, payload: Dict[str, Any], status_code: int = 200):
         self._payload = payload
         self.text = ""
+        self.status_code = status_code
+        self.headers: Dict[str, str] = {}
 
     def json(self) -> Dict[str, Any]:
         return self._payload

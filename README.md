@@ -6,6 +6,9 @@ Python client and CLI for the [MDF Connect v2](https://github.com/materials-data
 
 ```bash
 pip install -e .
+
+# With metadata extractors (PDF, CSV, Excel)
+pip install -e ".[extractors]"
 ```
 
 ## Quick start
@@ -14,17 +17,22 @@ pip install -e .
 # Authenticate with Globus
 mdf login
 
-# Publish a dataset (repository workflow)
+# Publish a dataset directly
+mdf publish ./data/ --title "My Dataset" --author "Jane Doe" --submit
+
+# Or use the repository workflow
 mdf init --title "My Dataset" --author "Jane Doe"
 mdf add ./data
 mdf commit -m "Initial commit"
-mdf publish
+mdf publish --submit
 
-# Check submission status
-mdf backend status SOURCE_ID
+# Check status
+mdf status
 
-# Search datasets
-mdf search "iron oxide"
+# Browse your datasets
+mdf list
+mdf show my_dataset_v1
+mdf versions my_dataset_v1
 ```
 
 ## CLI commands
@@ -38,38 +46,88 @@ mdf logout                    # Clear cached tokens
 mdf whoami                    # Show current auth status
 ```
 
-### Dataset workflow
+### Publishing datasets
 
 ```bash
-mdf init --title "Title" --author "Name"   # Initialize dataset
-mdf add ./data                              # Add files
-mdf commit -m "message"                     # Commit changes
-mdf publish                                 # Submit to MDF
-mdf publish --service staging               # Submit to staging
+# Direct mode (no repository needed)
+mdf publish ./data/ --title "My Dataset" --author "Jane" --submit
+mdf publish ./data/ --title "My Dataset" --author "Jane" --dry-run  # Preview payload
+
+# Repository mode
+mdf init --title "Title" --author "Name"   # Initialize dataset (interactive if no flags)
+mdf add ./data --discover                  # Stage files with auto-metadata extraction
+mdf commit -m "message"                    # Commit changes
+mdf validate                               # Check manifest
+mdf publish --submit                       # Submit to MDF
+
+# Update an existing dataset
+mdf update --data ./new_data/ --submit             # Updates last published dataset
+mdf update my_dataset_v1 --title "New" --submit    # Explicit source_id
+```
+
+### Discoverability
+
+```bash
+mdf list                            # List your submitted datasets
+mdf list --limit 50                 # More results
+
+mdf show my_dataset_v1              # Formatted dataset card
+mdf show my_dataset_v1 --cite       # Include citation
+mdf show my_dataset_v1 --json       # Raw JSON output
+
+mdf versions my_dataset_v1          # Version history table
+
+mdf status                          # Status of last published dataset
+mdf status my_dataset_v1            # Status of specific dataset
+
+mdf search "perovskite"             # Search all datasets and streams
+mdf search "XRD" --type streams     # Search only streams
+```
+
+### Curation
+
+```bash
+mdf pending                                          # List datasets awaiting review
+mdf pending --organization argonne                   # Filter by org
+mdf approve my_dataset_v1                            # Approve for publication
+mdf approve my_dataset_v1 --notes "LGTM"             # With curator notes
+mdf reject my_dataset_v1 --reason "Missing methods"  # Reject with reason
 ```
 
 ### Streaming (automated labs)
 
 ```bash
-mdf stream create --title "Lab 42 XRD Run"     # Create stream
-mdf stream append STREAM_ID ./data/scan_001.csv # Upload file
-mdf stream status STREAM_ID                      # Check stream
-mdf stream snapshot STREAM_ID                    # Snapshot to dataset
-mdf stream close STREAM_ID                       # Close stream
-mdf stream close STREAM_ID --mint-doi            # Close and mint DOI
+mdf stream create --title "Lab 42 XRD Run"
+mdf stream upload --stream-id ID data.csv            # Upload files (progress bar for >6MB)
+mdf stream status --stream-id ID
+mdf stream snapshot --stream-id ID                   # Snapshot to dataset
+mdf stream close --stream-id ID --mint-doi           # Close and mint DOI
+mdf stream files --stream-id ID                      # List uploaded files
+```
+
+### Configuration
+
+```bash
+mdf config show                          # Show all settings
+mdf config set defaults.service staging  # Set default service
+mdf config set user.email me@example.com # Set user email (validated)
+mdf config get defaults.service          # Get a value
+mdf config path                          # Show config file location
 ```
 
 ### Backend operations
 
+Low-level backend API commands. All accept `--json` for raw JSON output (useful for scripting).
+
 ```bash
-mdf backend health                                 # Health check
-mdf backend status SOURCE_ID                       # Submission status
-mdf backend submissions                            # List submissions
-mdf backend curation-pending                       # Pending curation queue
-mdf backend curation-approve SOURCE_ID             # Approve submission
-mdf backend curation-approve SOURCE_ID --mint-doi  # Approve and mint DOI
-mdf backend curation-reject SOURCE_ID --reason "..." # Reject
-mdf backend preview SOURCE_ID                      # Dataset preview
+mdf backend health                         # Health check
+mdf backend status --source-id X           # Submission status
+mdf backend status --source-id X --json    # Raw JSON (for scripts)
+mdf backend submissions                    # List submissions
+mdf backend card my_dataset_v1             # Dataset preview card
+mdf backend cite my_dataset_v1 -f bibtex   # Citation in BibTeX
+mdf backend preview my_dataset_v1          # Dataset preview
+mdf backend search "iron oxide"            # Search
 ```
 
 ### Service targeting
@@ -77,8 +135,8 @@ mdf backend preview SOURCE_ID                      # Dataset preview
 All commands that talk to the backend accept `--service` to choose the target:
 
 ```bash
---service prod      # Production (default)
---service staging   # Staging
+--service prod      # Production
+--service staging   # Staging (default)
 --service local     # Local dev server (http://127.0.0.1:8080)
 ```
 
@@ -86,29 +144,59 @@ Or set `MDF_API_URL` to point to any backend URL.
 
 ## Python SDK
 
+### MDFAgent (high-level API)
+
+```python
+from mdf_agent import MDFAgent
+
+agent = MDFAgent()
+
+# Search
+results = agent.search("perovskite", service_instance="staging")
+
+# Dataset info
+card = agent.show("my_dataset_v1", service_instance="staging")
+versions = agent.versions("my_dataset_v1", service_instance="staging")
+citation = agent.cite("my_dataset_v1", format="bibtex", service_instance="staging")
+
+# Curation
+pending = agent.pending(service_instance="staging")
+agent.approve("my_dataset_v1", notes="LGTM", service_instance="staging")
+agent.reject("my_dataset_v1", reason="Missing methods", service_instance="staging")
+
+# Publishing (repository mode)
+agent = MDFAgent.init("./my_data", title="My Dataset", authors=["Jane Doe"])
+agent.add("data/*.csv", discover=True)
+agent.commit("Add experimental data")
+result = agent.publish(service_instance="staging", dry_run=False)
+
+# Streaming
+stream = agent.stream_create("Lab Run", service_instance="staging")
+agent.stream_close(stream["stream_id"], mint_doi=True, service_instance="staging")
+```
+
+### BackendClient (low-level API)
+
 ```python
 from mdf_agent import BackendClient
 
-# Authenticate (interactive Globus login, tokens cached)
 client = BackendClient.authenticated(service_instance="staging")
 
-# Submit a dataset
-result = client.submit({
-    "title": "My Dataset",
-    "authors": [{"name": "Jane Doe"}],
-    "data_sources": ["https://example.com/data.csv"],
-})
-
-# Check status
+# Submit, status, search
+result = client.submit({"title": "My Dataset", "authors": [{"name": "Jane"}], ...})
 status = client.status(result["source_id"])
-
-# Search
 results = client.search("iron oxide")
 
+# Versions and citations
+versions = client.versions("my_dataset_v1")
+citation = client.get_citation("my_dataset_v1", format="bibtex")
+
 # Streaming
-stream = client.stream_create("Lab XRD Run")
-client.stream_append(stream["stream_id"], files=[...])
+stream = client.stream_create("Lab Run")
+client.stream_upload(stream["stream_id"], "data.csv", content)
 client.stream_close(stream["stream_id"], mint_doi=True)
+
+client.close()
 ```
 
 ### Auth resolution
@@ -121,9 +209,16 @@ client.stream_close(stream["stream_id"], mint_doi=True)
 4. `MDF_DEV_USER_ID` (dev mode, no real auth)
 5. Interactive Globus OAuth login (opens browser, caches tokens)
 
-## Connecting to the backend
+### Error handling
 
-The backend is deployed as a separate service ([connect_server](https://github.com/materials-data-facility/connect_server)). See that repo's README for deployment instructions.
+All HTTP requests automatically retry on transient errors:
+- **429** (rate limited): respects `Retry-After` header
+- **502, 503, 504** (server errors): exponential backoff
+- **Connection errors**: 3 retries with backoff
+
+File uploads (`_https_put_file`) also retry on 502/503/504 and connection errors. SSL verification for the Globus HTTPS endpoint is configurable via `MDF_SSL_VERIFY` (default: `false`, as the Globus endpoint uses a private CA).
+
+## Connecting to the backend
 
 | Environment | API URL | How to deploy |
 |-------------|---------|---------------|
@@ -135,7 +230,11 @@ The backend is deployed as a separate service ([connect_server](https://github.c
 ## Running tests
 
 ```bash
-python -m pytest tests/ -v
+# Client tests
+python -m pytest tests/ -v --ignore=tests/test_connect_client.py
+
+# Backend tests (no AWS credentials needed)
+cd cs/aws && python -m pytest v2/test_v2_*.py -v
 ```
 
 ## Legacy

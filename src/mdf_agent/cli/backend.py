@@ -12,6 +12,7 @@ from rich import box
 
 from mdf_agent.core.backend_client import BackendClient
 from mdf_agent.core.config import resolve_service
+from mdf_agent.cli.formatting import format_result_or_json, format_status_badge, handle_api_result
 
 app = typer.Typer(help="Interact with MDF backend (v2) API")
 console = Console()
@@ -44,23 +45,31 @@ def _print(result):
 @app.command("health")
 def health(
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     client = _client(api_url)
     result = client.health()
     client.close()
-    _print(result)
+    format_result_or_json(result, json_output, success_msg="Backend is healthy")
 
 
 @app.command("submit")
 def submit(
     payload: Path = typer.Option(..., "--payload", help="Path to submission JSON"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     client = _client(api_url)
     data = json.loads(payload.read_text(encoding="utf-8"))
     result = client.submit(data)
     client.close()
-    _print(result)
+    if json_output:
+        _print(result)
+    else:
+        if result.get("success"):
+            console.print(f"[green]Submitted:[/green] {result.get('source_id')} v{result.get('version')}")
+        else:
+            handle_api_result(result, error_prefix="Submit failed")
 
 
 @app.command("status")
@@ -68,22 +77,41 @@ def status(
     source_id: str = typer.Option(..., "--source-id"),
     version: Optional[str] = typer.Option(None, "--version"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     client = _client(api_url)
     result = client.status(source_id, version=version)
     client.close()
-    _print(result)
+    if json_output:
+        _print(result)
+    else:
+        sub = result.get("submission") or result
+        if sub.get("source_id"):
+            console.print(f"[cyan]{sub.get('source_id')}[/cyan] v{sub.get('version', '?')}")
+            console.print(f"  Status: {format_status_badge(sub.get('status', 'unknown'))}")
+        else:
+            handle_api_result(result, error_prefix="Status lookup")
 
 
 @app.command("submissions")
 def submissions(
     organization: Optional[str] = typer.Option(None, "--organization"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     client = _client(api_url)
     result = client.submissions(organization=organization)
     client.close()
-    _print(result)
+    if json_output:
+        _print(result)
+    else:
+        subs = result.get("submissions", [])
+        if subs:
+            console.print(f"\n[bold]{len(subs)} submission(s):[/bold]")
+            for s in subs:
+                console.print(f"  {s.get('source_id', '')} v{s.get('version', '?')} — {format_status_badge(s.get('status', ''))}")
+        else:
+            handle_api_result(result, error_prefix="Submissions")
 
 
 @app.command("curation-pending")
@@ -92,11 +120,21 @@ def curation_pending(
     offset: int = typer.Option(0, "--offset"),
     organization: Optional[str] = typer.Option(None, "--organization"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     client = _client(api_url)
     result = client.curation_pending(limit=limit, offset=offset, organization=organization)
     client.close()
-    _print(result)
+    if json_output:
+        _print(result)
+    else:
+        subs = result.get("submissions", [])
+        if subs:
+            console.print(f"\n[bold]Pending curation ({len(subs)}):[/bold]")
+            for s in subs:
+                console.print(f"  {s.get('source_id', '')} — {s.get('title', 'Untitled')}")
+        else:
+            console.print("[dim]No datasets pending curation.[/dim]")
 
 
 @app.command("curation-detail")
@@ -104,11 +142,12 @@ def curation_detail(
     source_id: str = typer.Option(..., "--source-id"),
     version: Optional[str] = typer.Option(None, "--version"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     client = _client(api_url)
     result = client.curation_detail(source_id, version=version)
     client.close()
-    _print(result)
+    format_result_or_json(result, json_output, error_prefix="Curation detail")
 
 
 @app.command("curation-approve")
@@ -123,6 +162,7 @@ def curation_approve(
     ),
     version: Optional[str] = typer.Option(None, "--version"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     metadata_payload = None
     if metadata_updates:
@@ -137,7 +177,7 @@ def curation_approve(
         version=version,
     )
     client.close()
-    _print(result)
+    format_result_or_json(result, json_output, success_msg=f"Approved: {source_id}", error_prefix="Approve failed")
 
 
 @app.command("curation-reject")
@@ -147,6 +187,7 @@ def curation_reject(
     suggestions: Optional[str] = typer.Option(None, "--suggestions"),
     version: Optional[str] = typer.Option(None, "--version"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     client = _client(api_url)
     result = client.curation_reject(
@@ -156,7 +197,7 @@ def curation_reject(
         version=version,
     )
     client.close()
-    _print(result)
+    format_result_or_json(result, json_output, success_msg=f"Rejected: {source_id}", error_prefix="Reject failed")
 
 
 @app.command("update-status")
@@ -165,11 +206,12 @@ def update_status(
     version: str = typer.Option(..., "--version"),
     status: str = typer.Option(..., "--status"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     client = _client(api_url)
     result = client.update_status(source_id, version, status)
     client.close()
-    _print(result)
+    format_result_or_json(result, json_output, success_msg=f"Status updated: {source_id} → {status}", error_prefix="Update failed")
 
 
 @app.command("stream-create")
@@ -178,11 +220,18 @@ def stream_create(
     lab_id: Optional[str] = typer.Option(None, "--lab-id"),
     organization: Optional[str] = typer.Option(None, "--organization"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     client = _client(api_url)
     result = client.stream_create(title, lab_id=lab_id, organization=organization)
     client.close()
-    _print(result)
+    if json_output:
+        _print(result)
+    else:
+        if result.get("success"):
+            console.print(f"[green]Stream created:[/green] {result.get('stream_id')}")
+        else:
+            handle_api_result(result, error_prefix="Stream create failed")
 
 
 @app.command("stream-append")
@@ -192,6 +241,7 @@ def stream_append(
     file_count: Optional[int] = typer.Option(None, "--file-count"),
     total_bytes: Optional[int] = typer.Option(None, "--total-bytes"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     client = _client(api_url)
     files_payload = None
@@ -206,18 +256,28 @@ def stream_append(
         total_bytes=total_bytes,
     )
     client.close()
-    _print(result)
+    format_result_or_json(result, json_output, success_msg="Files appended", error_prefix="Append failed")
 
 
 @app.command("stream-status")
 def stream_status(
     stream_id: str = typer.Option(..., "--stream-id"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     client = _client(api_url)
     result = client.stream_status(stream_id)
     client.close()
-    _print(result)
+    if json_output:
+        _print(result)
+    else:
+        if result.get("success"):
+            s = result
+            console.print(f"[cyan]{s.get('stream_id', stream_id)}[/cyan]")
+            console.print(f"  Status: {format_status_badge(s.get('status', 'unknown'))}")
+            console.print(f"  Files: {s.get('file_count', 0)}")
+        else:
+            handle_api_result(result, error_prefix="Stream status")
 
 
 @app.command("stream-close")
@@ -230,6 +290,7 @@ def stream_close(
     keywords: Optional[Path] = typer.Option(None, "--keywords", help="Path to JSON keywords list"),
     license: Optional[str] = typer.Option(None, "--license"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     authors_payload = None
     if authors:
@@ -250,7 +311,7 @@ def stream_close(
         license=license,
     )
     client.close()
-    _print(result)
+    format_result_or_json(result, json_output, success_msg=f"Stream closed: {stream_id}", error_prefix="Stream close failed")
 
 
 @app.command("stream-snapshot")
@@ -259,11 +320,12 @@ def stream_snapshot(
     title: Optional[str] = typer.Option(None, "--title"),
     update: bool = typer.Option(False, "--update", help="Update existing dataset if present"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     client = _client(api_url)
     result = client.stream_snapshot(stream_id, title=title, update=update)
     client.close()
-    _print(result)
+    format_result_or_json(result, json_output, success_msg="Snapshot created", error_prefix="Snapshot failed")
 
 
 @app.command("search")

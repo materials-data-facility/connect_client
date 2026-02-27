@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -10,6 +11,7 @@ from rich.table import Table
 
 from mdf_agent.core.backend_client import BackendClient
 from mdf_agent.core.config import resolve_service
+from mdf_agent.cli.formatting import format_result_or_json, handle_api_result
 
 console = Console()
 
@@ -46,11 +48,18 @@ def create(
     lab_id: Optional[str] = typer.Option(None, "--lab-id"),
     organization: Optional[str] = typer.Option(None, "--organization"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     client = _client(api_url)
     result = client.stream_create(title, lab_id=lab_id, organization=organization)
     client.close()
-    _print(result)
+    if json_output:
+        _print(result)
+    else:
+        if result.get("success"):
+            console.print(f"[green]Stream created:[/green] {result.get('stream_id')}")
+        else:
+            handle_api_result(result, error_prefix="Stream create failed")
 
 
 @app.command("append")
@@ -60,6 +69,7 @@ def append(
     file_count: Optional[int] = typer.Option(None, "--file-count"),
     total_bytes: Optional[int] = typer.Option(None, "--total-bytes"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     client = _client(api_url)
     files_payload = None
@@ -74,18 +84,19 @@ def append(
         total_bytes=total_bytes,
     )
     client.close()
-    _print(result)
+    format_result_or_json(result, json_output, success_msg="Files appended", error_prefix="Append failed")
 
 
 @app.command("status")
 def status(
     stream_id: str = typer.Option(..., "--stream-id"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     client = _client(api_url)
     result = client.stream_status(stream_id)
     client.close()
-    _print(result)
+    format_result_or_json(result, json_output, error_prefix="Stream status")
 
 
 @app.command("close")
@@ -98,6 +109,7 @@ def close(
     keywords: Optional[Path] = typer.Option(None, "--keywords", help="Path to JSON keywords list"),
     license: Optional[str] = typer.Option(None, "--license"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     authors_payload = None
     if authors:
@@ -118,7 +130,7 @@ def close(
         license=license,
     )
     client.close()
-    _print(result)
+    format_result_or_json(result, json_output, success_msg=f"Stream closed: {stream_id}", error_prefix="Stream close failed")
 
 
 @app.command("snapshot")
@@ -127,11 +139,15 @@ def snapshot(
     title: Optional[str] = typer.Option(None, "--title"),
     update: bool = typer.Option(False, "--update"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
     client = _client(api_url)
     result = client.stream_snapshot(stream_id, title=title, update=update)
     client.close()
-    _print(result)
+    format_result_or_json(result, json_output, success_msg="Snapshot created", error_prefix="Snapshot failed")
+
+
+_PRESIGNED_THRESHOLD = 6 * 1024 * 1024  # 6 MB
 
 
 @app.command("upload")
@@ -142,29 +158,108 @@ def upload(
 ):
     """Upload files to a stream.
 
+    Files > 6 MB are uploaded via pre-signed URL with a progress bar.
+
     Examples:
         mdf stream upload --stream-id abc123 data.csv
         mdf stream upload --stream-id abc123 *.csv
     """
+    import hashlib
+    import httpx
+    from rich.progress import Progress, BarColumn, DownloadColumn, TransferSpeedColumn
+
     client = _client(api_url)
 
     uploaded = []
     errors = []
 
-    for file_path in files:
-        if not file_path.exists():
-            errors.append({"file": str(file_path), "error": "File not found"})
-            continue
+    use_progress = sys.stderr.isatty()
+    progress_ctx = None
+    if use_progress:
+        progress_ctx = Progress(
+            "[progress.description]{task.description}",
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            console=console,
+            transient=True,
+        )
+        progress_ctx.start()
 
-        try:
-            content = file_path.read_bytes()
-            result = client.stream_upload(stream_id, file_path.name, content)
-            if result.get("success"):
-                uploaded.extend(result.get("files", []))
-            else:
-                errors.append({"file": str(file_path), "error": result.get("error", "Unknown error")})
-        except Exception as e:
-            errors.append({"file": str(file_path), "error": str(e)})
+    try:
+        for file_path in files:
+            if not file_path.exists():
+                errors.append({"file": str(file_path), "error": "File not found"})
+                continue
+
+            file_size = file_path.stat().st_size
+
+            try:
+                if file_size > _PRESIGNED_THRESHOLD:
+                    # Use presigned URL path for large files
+                    url_result = client.stream_get_upload_url(stream_id, file_path.name)
+                    if not url_result.get("success"):
+                        errors.append({"file": str(file_path), "error": url_result.get("error", "Failed to get upload URL")})
+                        continue
+
+                    upload_url = url_result.get("url", "")
+                    upload_headers = url_result.get("headers", {})
+                    storage_path = url_result.get("path", "")
+
+                    task_id = None
+                    if progress_ctx:
+                        task_id = progress_ctx.add_task(file_path.name, total=file_size)
+
+                    # Stream the file via PUT
+                    bytes_sent = 0
+                    md5 = hashlib.md5()
+
+                    def _file_stream():
+                        nonlocal bytes_sent
+                        with open(file_path, "rb") as f:
+                            while True:
+                                chunk = f.read(8 * 1024 * 1024)
+                                if not chunk:
+                                    break
+                                md5.update(chunk)
+                                bytes_sent += len(chunk)
+                                if progress_ctx and task_id is not None:
+                                    progress_ctx.update(task_id, completed=bytes_sent)
+                                yield chunk
+
+                    timeout = httpx.Timeout(connect=30, read=300, write=300, pool=30)
+                    with httpx.Client(timeout=timeout) as http:
+                        resp = http.put(upload_url, content=_file_stream(), headers=upload_headers)
+                        resp.raise_for_status()
+
+                    # Confirm the upload
+                    confirm = client.stream_confirm_upload(
+                        stream_id,
+                        path=storage_path,
+                        size_bytes=file_size,
+                        checksum_md5=md5.hexdigest(),
+                    )
+                    if confirm.get("success"):
+                        uploaded.append({
+                            "filename": file_path.name,
+                            "size_bytes": file_size,
+                            "checksum_md5": md5.hexdigest(),
+                        })
+                    else:
+                        errors.append({"file": str(file_path), "error": confirm.get("error", "Confirm failed")})
+                else:
+                    # Small file: base64 upload
+                    content = file_path.read_bytes()
+                    result = client.stream_upload(stream_id, file_path.name, content)
+                    if result.get("success"):
+                        uploaded.extend(result.get("files", []))
+                    else:
+                        errors.append({"file": str(file_path), "error": result.get("error", "Unknown error")})
+            except Exception as e:
+                errors.append({"file": str(file_path), "error": str(e)})
+    finally:
+        if progress_ctx:
+            progress_ctx.stop()
 
     client.close()
 
@@ -180,7 +275,7 @@ def upload(
             table.add_row(
                 f.get("filename", ""),
                 f"{size_kb:.1f} KB",
-                f.get("checksum_md5", "")[:12] + "...",
+                (f.get("checksum_md5", "") or "")[:12] + "...",
             )
         console.print(table)
 
