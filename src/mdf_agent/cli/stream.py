@@ -9,16 +9,17 @@ from rich.console import Console
 from rich.table import Table
 
 from mdf_agent.core.backend_client import BackendClient
+from mdf_agent.core.config import resolve_service
 
 console = Console()
 
 app = typer.Typer(help="MDF Streaming commands")
-_auth_opts: Dict[str, Optional[str]] = {"service": "prod", "token": None, "dev_user": None}
+_auth_opts: Dict[str, Optional[str]] = {"service": None, "token": None, "dev_user": None}
 
 
 @app.callback()
 def stream_callback(
-    service: str = typer.Option("prod", "--service", "-s", help="Service instance (prod/dev/local)"),
+    service: Optional[str] = typer.Option(None, "--service", "-s", help="Service instance (staging/prod/dev/local)"),
     token: Optional[str] = typer.Option(None, "--token", help="Globus access token"),
     dev_user: Optional[str] = typer.Option(None, "--dev-user", help="Dev-mode user id (X-User-Id)"),
 ):
@@ -30,7 +31,7 @@ def _client(api_url: Optional[str]) -> BackendClient:
     return BackendClient.authenticated(
         base_url=api_url,
         token=_auth_opts.get("token"),
-        service_instance=_auth_opts.get("service") or "prod",
+        service_instance=resolve_service(_auth_opts.get("service")),
         dev_user_id=_auth_opts.get("dev_user"),
     )
 

@@ -11,7 +11,7 @@ import httpx
 _V2_API_URLS = {
     "prod": "https://api.materialsdatafacility.org",
     "dev": "https://api-dev.materialsdatafacility.org",
-    "staging": "",  # Populated after deploy: https://<id>.execute-api.us-east-1.amazonaws.com/staging
+    "staging": "https://hjccjf3eqg.execute-api.us-east-1.amazonaws.com/staging",
     "local": "http://127.0.0.1:8080",
 }
 
@@ -41,12 +41,14 @@ class BackendClient:
         token: Optional[str] = None,
         user_id: Optional[str] = None,
         globus_data_token: Optional[str] = None,
+        globus_transfer_token: Optional[str] = None,
     ):
         self.base_url = base_url.rstrip("/")
         self._client = httpx.Client(timeout=30.0)
         self._token = token
         self._user_id = user_id
         self._globus_data_token = globus_data_token
+        self._globus_transfer_token = globus_transfer_token
 
     @classmethod
     def from_env(cls) -> "BackendClient":
@@ -88,6 +90,7 @@ class BackendClient:
             from mdf_agent.auth.globus import (
                 DATA_MDF_SCOPE,
                 NCSA_MDF_COLLECTION_UUID,
+                TRANSFER_SCOPE,
                 get_scopes_for_service,
             )
 
@@ -97,7 +100,7 @@ class BackendClient:
                 confidential_client_secret,
             )
             token_response = confidential_client.oauth2_client_credentials_tokens(
-                requested_scopes=f"{scope} {DATA_MDF_SCOPE}",
+                requested_scopes=f"{scope} {DATA_MDF_SCOPE} {TRANSFER_SCOPE}",
             )
             by_resource_server = getattr(token_response, "by_resource_server", {}) or {}
 
@@ -110,8 +113,9 @@ class BackendClient:
 
             service_token = _extract_access_token(by_resource_server.get(resource_server))
             data_token = _extract_access_token(by_resource_server.get(NCSA_MDF_COLLECTION_UUID))
+            transfer_token = _extract_access_token(by_resource_server.get("transfer.api.globus.org"))
             if service_token:
-                return cls(base_url=url, token=service_token, globus_data_token=data_token or None)
+                return cls(base_url=url, token=service_token, globus_data_token=data_token or None, globus_transfer_token=transfer_token or None)
 
         resolved_user_id = dev_user_id or os.environ.get("MDF_DEV_USER_ID")
         if not resolved_user_id and normalized_service == "local":
@@ -124,11 +128,11 @@ class BackendClient:
             return cls(base_url=url)
 
         # Lazy import so token/dev-user workflows do not require globus_sdk.
-        from mdf_agent.auth.globus import get_authorizer_for_scopes, get_scopes_for_service, DATA_MDF_SCOPE, NCSA_MDF_COLLECTION_UUID
+        from mdf_agent.auth.globus import get_authorizer_for_scopes, get_scopes_for_service, DATA_MDF_SCOPE, TRANSFER_SCOPE, NCSA_MDF_COLLECTION_UUID
 
         scope, _resource_server = get_scopes_for_service(service_instance)
         authorizers = get_authorizer_for_scopes(
-            [scope, DATA_MDF_SCOPE],
+            [scope, DATA_MDF_SCOPE, TRANSFER_SCOPE],
         )
 
         bearer_prefix = "Bearer "
@@ -147,7 +151,10 @@ class BackendClient:
         # The resource server key is the collection UUID, not the hostname.
         data_token = _extract(authorizers.get(NCSA_MDF_COLLECTION_UUID))
 
-        return cls(base_url=url, token=openid_token, globus_data_token=data_token or None)
+        # Transfer token for mkdir operations before HTTPS uploads
+        transfer_token = _extract(authorizers.get("transfer.api.globus.org"))
+
+        return cls(base_url=url, token=openid_token, globus_data_token=data_token or None, globus_transfer_token=transfer_token or None)
 
     def close(self) -> None:
         self._client.close()

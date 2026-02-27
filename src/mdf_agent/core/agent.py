@@ -38,11 +38,31 @@ from mdf_agent.extractors.registry import discover_metadata
 from mdf_agent.models.config import Author, ManifestConfig
 
 
-_MDF_HTTPS_BASE = "https://g-456d30.dd271.03c0.data.globus.org"
+_MDF_HTTPS_BASE = "https://data.materialsdatafacility.org"
 _NCSA_MDF_COLLECTION_UUID = "82f1b5c6-6e9b-11e5-ba47-22000b92c6ec"
 
 
 _UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024  # 8 MB
+
+
+def _mkdir_on_collection(
+    path: str,
+    transfer_token: str,
+) -> None:
+    """Create a directory on the MDF Globus collection via the Transfer API."""
+    import httpx
+
+    url = f"https://transfer.api.globus.org/v0.10/operation/endpoint/{_NCSA_MDF_COLLECTION_UUID}/mkdir"
+    with httpx.Client(timeout=30.0) as client:
+        resp = client.post(
+            url,
+            json={"DATA_TYPE": "mkdir", "path": path},
+            headers={"Authorization": f"Bearer {transfer_token}"},
+        )
+        # 502 "already exists" is fine
+        if resp.status_code in (200, 201, 202) or "already exists" in resp.text.lower():
+            return
+        resp.raise_for_status()
 
 
 def _upload_local_files(
@@ -50,6 +70,7 @@ def _upload_local_files(
     data_token: str,
     source_id: Optional[str] = None,
     progress_callback: Optional[Callable[[str, int, int], None]] = None,
+    transfer_token: Optional[str] = None,
 ) -> List[str]:
     """Upload local file paths to MDF HTTPS storage, returning updated source list.
 
@@ -60,8 +81,9 @@ def _upload_local_files(
         data_sources: List of data source paths/URIs.
         data_token: Globus HTTPS bearer token.
         source_id: If available, upload to ``/mdf_open/{source_id}/`` for
-            deterministic paths. Falls back to ``/mdf_open/_uploads/{uuid}/``.
+            deterministic paths. Falls back to ``/tmp/_uploads/{uuid}/``.
         progress_callback: Optional ``(filename, bytes_sent, total_bytes)`` callback.
+        transfer_token: Globus Transfer API token, used to mkdir before upload.
     """
     import uuid
 
@@ -71,7 +93,11 @@ def _upload_local_files(
         upload_prefix = f"/mdf_open/{source_id}"
     else:
         upload_id = uuid.uuid4().hex[:8]
-        upload_prefix = f"/mdf_open/_uploads/{upload_id}"
+        upload_prefix = f"/tmp/_uploads/{upload_id}"
+
+    # Create the upload directory on the collection via Transfer API
+    if transfer_token:
+        _mkdir_on_collection(upload_prefix + "/", transfer_token)
 
     for source in data_sources:
         # Skip anything that's already a URL
@@ -131,7 +157,7 @@ def _https_put_file(
                 yield chunk
 
     timeout = httpx.Timeout(connect=30, read=300, write=300, pool=30)
-    with httpx.Client(timeout=timeout) as client:
+    with httpx.Client(timeout=timeout, verify=False) as client:
         resp = client.put(
             url,
             content=file_stream(),
@@ -282,6 +308,7 @@ class MDFAgent:
                     client._globus_data_token,
                     source_id=upload_source_id,
                     progress_callback=progress_callback,
+                    transfer_token=client._globus_transfer_token,
                 )
             return client.submit(payload)
         finally:
