@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from functools import wraps
 import os
+import sys
 from typing import List, Optional
 
 import typer
@@ -56,7 +57,7 @@ app.add_typer(stream_app, name="stream")
 
 @app.command()
 def login(
-    service: str = typer.Option("prod", "--service", "-s", help="Service instance (prod/dev)"),
+    service: str = typer.Option("staging", "--service", "-s", help="Service instance (staging/prod/dev)"),
     token: Optional[str] = typer.Option(None, "--token", help="Use an explicit access token"),
 ):
     """Authenticate with Globus for MDF Connect."""
@@ -97,7 +98,7 @@ def logout():
 
 @app.command()
 def whoami(
-    service: str = typer.Option("prod", "--service", "-s", help="Service instance (prod/dev)"),
+    service: str = typer.Option("staging", "--service", "-s", help="Service instance (staging/prod/dev)"),
 ):
     """Show current authentication status."""
     from mdf_agent.auth.globus import DEFAULT_TOKEN_PATH, is_logged_in
@@ -251,7 +252,7 @@ def publish(
     test: bool = typer.Option(False, "--test", "-t", help="Submit to test environment"),
     update: bool = typer.Option(False, "--update", "-u", help="Update existing dataset"),
     dry_run: bool = typer.Option(True, "--dry-run/--submit", help="Preview without submitting"),
-    service: str = typer.Option("prod", "--service", "-s", help="Service instance (prod/dev/local)"),
+    service: str = typer.Option("staging", "--service", "-s", help="Service instance (staging/prod/dev/local)"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API URL for local backend"),
     token: Optional[str] = typer.Option(None, "--token", help="Globus access token"),
     dev_user: Optional[str] = typer.Option(None, "--dev-user", help="Dev-mode user id (X-User-Id)"),
@@ -280,15 +281,45 @@ def publish(
         console.print(syntax)
         return
 
-    result = agent.publish(
-        test=test,
-        update=update,
-        dry_run=False,
-        token=token,
-        service_instance=service,
-        api_url=api_url,
-        dev_user_id=dev_user,
-    )
+    # Build a rich progress callback for file uploads
+    from rich.progress import Progress, BarColumn, DownloadColumn, TransferSpeedColumn
+
+    progress_callback = None
+    progress_ctx = None
+    file_tasks: dict = {}
+
+    if sys.stderr.isatty():
+        progress_ctx = Progress(
+            "[progress.description]{task.description}",
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            console=console,
+            transient=True,
+        )
+        progress_ctx.start()
+
+        def _progress_cb(filename: str, bytes_sent: int, total_bytes: int) -> None:
+            if filename not in file_tasks:
+                file_tasks[filename] = progress_ctx.add_task(filename, total=total_bytes)
+            progress_ctx.update(file_tasks[filename], completed=bytes_sent)
+
+        progress_callback = _progress_cb
+
+    try:
+        result = agent.publish(
+            test=test,
+            update=update,
+            dry_run=False,
+            token=token,
+            service_instance=service,
+            api_url=api_url,
+            dev_user_id=dev_user,
+            progress_callback=progress_callback,
+        )
+    finally:
+        if progress_ctx is not None:
+            progress_ctx.stop()
 
     if result.get("success"):
         console.print("\n[bold green]Published successfully![/bold green]")
@@ -350,7 +381,7 @@ def search(
     query: str = typer.Argument(..., help="Search query"),
     search_type: str = typer.Option("all", "--type", "-t", help="all, datasets, or streams"),
     limit: int = typer.Option(20, "--limit", "-n", help="Max results"),
-    service: str = typer.Option("prod", "--service", "-s", help="Service instance (prod/dev/local)"),
+    service: str = typer.Option("staging", "--service", "-s", help="Service instance (staging/prod/dev/local)"),
     token: Optional[str] = typer.Option(None, "--token", help="Globus access token"),
     dev_user: Optional[str] = typer.Option(None, "--dev-user", help="Dev-mode user id (X-User-Id)"),
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),

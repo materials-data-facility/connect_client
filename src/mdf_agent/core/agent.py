@@ -25,8 +25,9 @@ Examples:
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from mdf_agent.core.manifest import load_manifest, save_manifest
 from mdf_agent.core.repository import Repository
@@ -35,6 +36,116 @@ from mdf_agent.core.validation import validate_manifest
 from mdf_agent.core.backend_client import BackendClient
 from mdf_agent.extractors.registry import discover_metadata
 from mdf_agent.models.config import Author, ManifestConfig
+
+
+_MDF_HTTPS_BASE = "https://g-456d30.dd271.03c0.data.globus.org"
+_NCSA_MDF_COLLECTION_UUID = "82f1b5c6-6e9b-11e5-ba47-22000b92c6ec"
+
+
+_UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024  # 8 MB
+
+
+def _upload_local_files(
+    data_sources: List[str],
+    data_token: str,
+    source_id: Optional[str] = None,
+    progress_callback: Optional[Callable[[str, int, int], None]] = None,
+) -> List[str]:
+    """Upload local file paths to MDF HTTPS storage, returning updated source list.
+
+    Local paths are uploaded via HTTPS PUT to the MDF Globus collection and
+    replaced with ``globus://`` URIs. Non-local sources pass through unchanged.
+
+    Args:
+        data_sources: List of data source paths/URIs.
+        data_token: Globus HTTPS bearer token.
+        source_id: If available, upload to ``/mdf_open/{source_id}/`` for
+            deterministic paths. Falls back to ``/mdf_open/_uploads/{uuid}/``.
+        progress_callback: Optional ``(filename, bytes_sent, total_bytes)`` callback.
+    """
+    import uuid
+
+    updated: List[str] = []
+
+    if source_id:
+        upload_prefix = f"/mdf_open/{source_id}"
+    else:
+        upload_id = uuid.uuid4().hex[:8]
+        upload_prefix = f"/mdf_open/_uploads/{upload_id}"
+
+    for source in data_sources:
+        # Skip anything that's already a URL
+        if source.startswith(("globus://", "https://", "http://", "stream://")):
+            updated.append(source)
+            continue
+
+        local_path = Path(source)
+        if not local_path.exists():
+            # Keep as-is — server will validate
+            updated.append(source)
+            continue
+
+        if local_path.is_dir():
+            # Upload directory contents recursively
+            for file_path in sorted(local_path.rglob("*")):
+                if file_path.is_file():
+                    relative = file_path.relative_to(local_path)
+                    dest_path = f"{upload_prefix}/{relative}"
+                    uri = _https_put_file(file_path, dest_path, data_token, progress_callback=progress_callback)
+                    if uri:
+                        updated.append(uri)
+        else:
+            dest_path = f"{upload_prefix}/{local_path.name}"
+            uri = _https_put_file(local_path, dest_path, data_token, progress_callback=progress_callback)
+            if uri:
+                updated.append(uri)
+
+    return updated if updated else data_sources
+
+
+def _https_put_file(
+    local_path: Path,
+    dest_path: str,
+    data_token: str,
+    progress_callback: Optional[Callable[[str, int, int], None]] = None,
+) -> Optional[str]:
+    """Upload a single file via streaming HTTPS PUT and return its globus:// URI.
+
+    Reads the file in 8 MB chunks to avoid loading entire files into memory.
+    """
+    import httpx
+
+    url = f"{_MDF_HTTPS_BASE}{dest_path}"
+    file_size = local_path.stat().st_size
+
+    def file_stream():
+        bytes_sent = 0
+        with open(local_path, "rb") as f:
+            while True:
+                chunk = f.read(_UPLOAD_CHUNK_SIZE)
+                if not chunk:
+                    break
+                bytes_sent += len(chunk)
+                if progress_callback:
+                    progress_callback(local_path.name, bytes_sent, file_size)
+                yield chunk
+
+    timeout = httpx.Timeout(connect=30, read=300, write=300, pool=30)
+    with httpx.Client(timeout=timeout) as client:
+        resp = client.put(
+            url,
+            content=file_stream(),
+            headers={
+                "Authorization": f"Bearer {data_token}",
+                "Content-Type": "application/octet-stream",
+                "Content-Length": str(file_size),
+            },
+        )
+        if resp.status_code in (200, 201, 204):
+            return f"globus://{_NCSA_MDF_COLLECTION_UUID}{dest_path}"
+        raise RuntimeError(
+            f"Failed to upload {local_path.name}: HTTP {resp.status_code} {resp.text}"
+        )
 
 
 class MDFAgent:
@@ -139,6 +250,7 @@ class MDFAgent:
         api_url: Optional[str] = None,
         dev_user_id: Optional[str] = None,
         authorizer: Optional[Any] = None,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
     ) -> Dict[str, Any]:
         payload = self.build_submission(test=test, update=update)
         if dry_run:
@@ -158,6 +270,19 @@ class MDFAgent:
             dev_user_id=dev_user_id,
         )
         try:
+            # Upload local files to MDF storage via HTTPS and replace
+            # paths with globus:// URIs before submitting.
+            data_sources = payload.get("data_sources", [])
+            if data_sources and client._globus_data_token:
+                # Use source_id for deterministic upload paths when available
+                ext = payload.get("extensions", {})
+                upload_source_id = ext.get("mdf_source_id") or ext.get("mdf_source_name")
+                payload["data_sources"] = _upload_local_files(
+                    data_sources,
+                    client._globus_data_token,
+                    source_id=upload_source_id,
+                    progress_callback=progress_callback,
+                )
             return client.submit(payload)
         finally:
             client.close()
