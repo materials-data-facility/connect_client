@@ -27,8 +27,10 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
+import zipfile
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, NamedTuple, Optional
 
 from mdf_agent.core.manifest import load_manifest, save_manifest
 from mdf_agent.core.repository import Repository
@@ -44,7 +46,14 @@ _NCSA_MDF_COLLECTION_UUID = "82f1b5c6-6e9b-11e5-ba47-22000b92c6ec"
 
 
 _UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024  # 8 MB
+_ZIP_MAX_TOTAL_BYTES = 12 * 1024 * 1024 * 1024  # 12 GB
 _INSECURE_SSL_WARNING_EMITTED = False
+
+
+class UploadResult(NamedTuple):
+    data_sources: List[str]
+    archive_url: Optional[str]
+    archive_size: Optional[int]
 
 
 def _resolve_upload_tls_verify() -> bool | str:
@@ -87,17 +96,79 @@ def _mkdir_on_collection(
         resp.raise_for_status()
 
 
+def _create_zip_archive(
+    local_dirs: List[tuple[Path, str]],
+    progress_callback: Optional[Callable[[str, int, int], None]] = None,
+) -> Optional[Path]:
+    """Create a zip archive from one or more local directories.
+
+    Args:
+        local_dirs: List of (resolved_dir_path, prefix_in_zip) pairs.
+        progress_callback: Optional progress callback.
+
+    Returns:
+        Path to temp zip file, or None if skipped (too large / empty).
+    """
+    # Collect all files and compute total size
+    file_entries: List[tuple[Path, str]] = []  # (absolute_path, arcname)
+    total_size = 0
+
+    for dir_path, prefix in local_dirs:
+        for file_path in sorted(dir_path.rglob("*")):
+            if not file_path.is_file():
+                continue
+            # Symlink safety: skip if target resolves outside the source dir
+            if file_path.is_symlink():
+                try:
+                    resolved = file_path.resolve()
+                    if not str(resolved).startswith(str(dir_path.resolve())):
+                        continue
+                except (OSError, ValueError):
+                    continue
+            relative = file_path.relative_to(dir_path)
+            arcname = f"{prefix}/{relative}" if prefix else str(relative)
+            total_size += file_path.stat().st_size
+            file_entries.append((file_path, arcname))
+
+    if not file_entries:
+        return None
+
+    if total_size > _ZIP_MAX_TOTAL_BYTES:
+        print(
+            f"Warning: Skipping zip archive — total size ({total_size / (1024**3):.1f} GB) "
+            f"exceeds {_ZIP_MAX_TOTAL_BYTES / (1024**3):.0f} GB limit.",
+            file=sys.stderr,
+        )
+        return None
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    tmp.close()
+    tmp_path = Path(tmp.name)
+
+    bytes_written = 0
+    with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file_path, arcname in file_entries:
+            zf.write(file_path, arcname)
+            bytes_written += file_path.stat().st_size
+            if progress_callback:
+                progress_callback("Creating archive", bytes_written, total_size)
+
+    return tmp_path
+
+
 def _upload_local_files(
     data_sources: List[str],
     data_token: str,
     source_id: Optional[str] = None,
     progress_callback: Optional[Callable[[str, int, int], None]] = None,
     transfer_token: Optional[str] = None,
-) -> List[str]:
+) -> UploadResult:
     """Upload local file paths to MDF HTTPS storage, returning updated source list.
 
     Local paths are uploaded via HTTPS PUT to the MDF Globus collection and
     replaced with ``globus://`` URIs. Non-local sources pass through unchanged.
+    When directories are uploaded, a zip archive is also created and uploaded
+    to ``{upload_prefix}/.mdf/data.zip``.
 
     Args:
         data_sources: List of data source paths/URIs.
@@ -110,6 +181,7 @@ def _upload_local_files(
     import uuid
 
     updated: List[str] = []
+    local_dirs: List[tuple[Path, str]] = []
 
     if source_id:
         upload_prefix = f"/mdf_open/{source_id}"
@@ -120,6 +192,9 @@ def _upload_local_files(
     # Create the upload directory on the collection via Transfer API
     if transfer_token:
         _mkdir_on_collection(upload_prefix + "/", transfer_token)
+
+    # Count directories to determine prefix logic
+    dir_count = sum(1 for s in data_sources if not s.startswith(("globus://", "https://", "http://", "stream://")) and Path(s).is_dir())
 
     for source in data_sources:
         # Skip anything that's already a URL
@@ -134,6 +209,9 @@ def _upload_local_files(
             continue
 
         if local_path.is_dir():
+            # Track for zip archive creation
+            prefix = local_path.name if dir_count > 1 else ""
+            local_dirs.append((local_path.resolve(), prefix))
             # Upload directory contents recursively
             for file_path in sorted(local_path.rglob("*")):
                 if file_path.is_file():
@@ -148,7 +226,26 @@ def _upload_local_files(
             if uri:
                 updated.append(uri)
 
-    return updated if updated else data_sources
+    # Create and upload zip archive for local directories
+    archive_url: Optional[str] = None
+    archive_size: Optional[int] = None
+    if local_dirs:
+        zip_path = _create_zip_archive(local_dirs, progress_callback=progress_callback)
+        if zip_path is not None:
+            try:
+                archive_size = zip_path.stat().st_size
+                mdf_dir = f"{upload_prefix}/.mdf"
+                if transfer_token:
+                    _mkdir_on_collection(mdf_dir + "/", transfer_token)
+                dest = f"{mdf_dir}/data.zip"
+                uri = _https_put_file(zip_path, dest, data_token, progress_callback=progress_callback)
+                if uri:
+                    archive_url = uri
+            finally:
+                zip_path.unlink(missing_ok=True)
+
+    sources = updated if updated else data_sources
+    return UploadResult(data_sources=sources, archive_url=archive_url, archive_size=archive_size)
 
 
 _UPLOAD_MAX_RETRIES = 3
@@ -346,13 +443,18 @@ class MDFAgent:
                 # Use source_id for deterministic upload paths when available
                 ext = payload.get("extensions", {})
                 upload_source_id = ext.get("mdf_source_id") or ext.get("mdf_source_name")
-                payload["data_sources"] = _upload_local_files(
+                upload_result = _upload_local_files(
                     data_sources,
                     client._globus_data_token,
                     source_id=upload_source_id,
                     progress_callback=progress_callback,
                     transfer_token=client._globus_transfer_token,
                 )
+                payload["data_sources"] = upload_result.data_sources
+                if upload_result.archive_url:
+                    payload["download_url"] = upload_result.archive_url
+                if upload_result.archive_size:
+                    payload["archive_size"] = upload_result.archive_size
             return client.submit(payload)
         finally:
             client.close()
