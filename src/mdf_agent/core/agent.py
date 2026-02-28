@@ -25,6 +25,7 @@ Examples:
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -43,6 +44,27 @@ _NCSA_MDF_COLLECTION_UUID = "82f1b5c6-6e9b-11e5-ba47-22000b92c6ec"
 
 
 _UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024  # 8 MB
+_INSECURE_SSL_WARNING_EMITTED = False
+
+
+def _resolve_upload_tls_verify() -> bool | str:
+    raw_value = os.environ.get("MDF_SSL_VERIFY")
+    if raw_value is None or not raw_value.strip():
+        return True
+
+    normalized = raw_value.strip().lower()
+    if normalized in ("true", "1", "yes"):
+        return True
+    if normalized in ("false", "0", "no"):
+        global _INSECURE_SSL_WARNING_EMITTED
+        if not _INSECURE_SSL_WARNING_EMITTED:
+            print(
+                "Warning: MDF_SSL_VERIFY=false disables TLS certificate verification for MDF uploads.",
+                file=sys.stderr,
+            )
+            _INSECURE_SSL_WARNING_EMITTED = True
+        return False
+    return raw_value
 
 
 def _mkdir_on_collection(
@@ -144,13 +166,12 @@ def _https_put_file(
     Reads the file in 8 MB chunks to avoid loading entire files into memory.
     Retries on 502/503/504 and connection errors up to 3 times.
     """
-    import os
     import time
     import httpx
 
     url = f"{_MDF_HTTPS_BASE}{dest_path}"
     file_size = local_path.stat().st_size
-    ssl_verify = os.environ.get("MDF_SSL_VERIFY", "false").lower() not in ("false", "0", "no")
+    ssl_verify = _resolve_upload_tls_verify()
 
     def file_stream():
         bytes_sent = 0

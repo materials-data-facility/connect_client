@@ -1043,18 +1043,38 @@ def update(
             console.print("[dim]Usage: mdf update <source_id> --data ./new_data/ --submit[/dim]")
             raise typer.Exit(code=1)
 
-    # Build manifest
+    # Fetch existing metadata so user doesn't have to re-supply title/authors
     cfg = GlobalConfig()
+    existing_title = resolved_source_id
+    existing_authors: List[str] = []
+    try:
+        from mdf_agent.core.backend_client import BackendClient as _BC, _api_url_for_service
+        _base = api_url or _api_url_for_service(resolved)
+        _client = _BC.authenticated(
+            base_url=_base, token=token, service_instance=resolved, dev_user_id=dev_user,
+        )
+        try:
+            card = _client.get_card(resolved_source_id)
+            if card.get("success") and card.get("card"):
+                c = card["card"]
+                existing_title = c.get("title", resolved_source_id)
+                existing_authors = c.get("authors", [])
+        finally:
+            _client.close()
+    except Exception:
+        pass
+
+    # Build manifest
     data_sources = list(data) if data else []
     manifest = ManifestConfig(
-        title=title or resolved_source_id,
-        authors=author or [""],
+        title=title or existing_title,
+        authors=author or existing_authors or [resolved_source_id],
         description=description,
         data_sources=data_sources,
         publisher=cfg.publisher,
         organization=cfg.organization,
     )
-    manifest.extensions = {"mdf_source_id": resolved_source_id}
+    manifest.custom = {"mdf_source_id": resolved_source_id}
 
     agent = MDFAgent(root=None, manifest=manifest)
     payload = agent.build_submission(test=False, update=True)
@@ -1119,7 +1139,8 @@ def update(
             cfg = GlobalConfig()
             cfg.record_publish(result.get("source_id"), new_version, resolved)
     else:
-        console.print(f"\n[bold red]Update failed:[/bold red] {result.get('error')}")
+        error = result.get("error") or result.get("detail") or "Unknown error"
+        console.print(f"\n[bold red]Update failed:[/bold red] {error}")
         raise typer.Exit(code=1)
 
 
