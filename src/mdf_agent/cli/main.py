@@ -4,18 +4,16 @@ This module provides the command-line interface for MDF Agent.
 Commands are organized as direct subcommands of the main `mdf` command.
 
 Usage:
-    mdf init ./my_dataset --title "My Dataset" --author "Jane Doe"
-    mdf add *.csv
-    mdf commit -m "Add experimental data"
-    mdf publish --test
+    mdf manifest init --title "My Dataset" --author "Jane Doe"
+    mdf publish --submit
     mdf publish ./data/ --title "Test" --author "Jane" --submit
 """
 
 from __future__ import annotations
 
-from functools import wraps
 import os
 import sys
+from pathlib import Path
 from typing import List, Optional
 
 import typer
@@ -27,25 +25,12 @@ from rich import print as rprint
 from mdf_agent.core.agent import MDFAgent
 from mdf_agent.core.backend_client import BackendClient, _api_url_for_service
 from mdf_agent.core.config import GlobalConfig, resolve_service
-from mdf_agent.core.exceptions import NotARepositoryError
 from mdf_agent.cli.backend import app as backend_app
 from mdf_agent.cli.stream import app as stream_app
 from mdf_agent.cli.config_cmd import app as config_app
+from mdf_agent.cli.manifest_cmd import app as manifest_app
 
 console = Console()
-
-
-def handle_repo_error(func):
-    """Decorator to catch NotARepositoryError and display a clean message."""
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except NotARepositoryError:
-            console.print("\n[red]Not an MDF repository[/red]")
-            console.print("[dim]Run [/dim][cyan]mdf init[/cyan][dim] to create one here, or cd to an existing repository.[/dim]\n")
-            raise typer.Exit(code=1)
-    return wrapper
 
 
 app = typer.Typer(
@@ -57,6 +42,7 @@ app = typer.Typer(
 app.add_typer(backend_app, name="backend")
 app.add_typer(stream_app, name="stream")
 app.add_typer(config_app, name="config")
+app.add_typer(manifest_app, name="manifest")
 
 
 @app.command()
@@ -121,103 +107,6 @@ def whoami(
 
 
 @app.command()
-def init(
-    path: str = typer.Argument(".", help="Repository path"),
-    title: Optional[str] = typer.Option(None, "--title", "-t", help="Dataset title"),
-    author: Optional[List[str]] = typer.Option(None, "--author", "-a", help="Author name (repeatable)"),
-    description: Optional[str] = typer.Option(None, "--description", "-d", help="Dataset description"),
-    publisher: Optional[str] = typer.Option(None, "--publisher", help="Dataset publisher"),
-    publication_year: Optional[int] = typer.Option(None, "--year", "-y", help="Publication year"),
-):
-    """Initialize an MDF dataset repository.
-
-    Creates a git-backed repository with an mdf.yaml manifest.
-    When --title and --author are not provided and running interactively,
-    prompts for required metadata.
-    """
-    resolved_title = title
-    resolved_authors = list(author) if author else []
-
-    if not resolved_title or not resolved_authors:
-        if sys.stdin.isatty():
-            console.print("[bold]Initialize MDF dataset[/bold]\n")
-            if not resolved_title:
-                resolved_title = typer.prompt("Dataset title")
-            if not resolved_authors:
-                console.print("[dim]Enter author names one per line. Empty line to finish.[/dim]")
-                while True:
-                    name = typer.prompt("Author", default="", show_default=False)
-                    if not name:
-                        break
-                    resolved_authors.append(name)
-            if not description:
-                description = typer.prompt("Description (optional)", default="", show_default=False) or None
-        else:
-            if not resolved_title:
-                console.print("[red]--title is required[/red]")
-                raise typer.Exit(code=1)
-            if not resolved_authors:
-                console.print("[red]--author is required[/red]")
-                raise typer.Exit(code=1)
-
-    if not resolved_title:
-        console.print("[red]Title is required[/red]")
-        raise typer.Exit(code=1)
-    if not resolved_authors:
-        console.print("[red]At least one author is required[/red]")
-        raise typer.Exit(code=1)
-
-    MDFAgent.init(
-        path=path,
-        title=resolved_title,
-        authors=resolved_authors,
-        description=description,
-        publisher=publisher,
-        publication_year=publication_year,
-    )
-    console.print(f"[green]Initialized MDF repository at[/green] [bold]{path}[/bold]")
-    console.print(f"  [dim]Title:[/dim] {resolved_title}")
-    console.print(f"  [dim]Authors:[/dim] {', '.join(resolved_authors)}")
-
-
-@app.command()
-@handle_repo_error
-def add(
-    paths: List[str] = typer.Argument(..., help="Files or globs to stage"),
-    discover: Optional[bool] = typer.Option(
-        None, "--discover/--no-discover", help="Auto-discover metadata from files"
-    ),
-):
-    """Stage files for the next commit (git add).
-
-    Supports glob patterns like *.csv or data/**/*.json.
-    Use --discover to automatically extract metadata from PDFs and data files.
-    """
-    agent = MDFAgent.from_repo(".")
-    staged = agent.add(*paths, discover=discover)
-    console.print("[green]Staged:[/green]")
-    for file_path in staged:
-        console.print(f"  [cyan]+[/cyan] {file_path}")
-
-
-@app.command()
-@handle_repo_error
-def commit(
-    message: str = typer.Option(..., "--message", "-m", help="Commit message"),
-):
-    """Record staged files as a git commit.
-
-    Creates a local checkpoint that can later be published to MDF Connect.
-    """
-    agent = MDFAgent.from_repo(".")
-    commit_data = agent.commit(message)
-    file_count = len(commit_data.get('staged_files', []))
-    short_hash = commit_data.get('hash', '')[:7]
-    console.print(f"[green]Committed:[/green] {commit_data.get('message', '')} [dim]({short_hash})[/dim]")
-    console.print(f"  [dim]{file_count} file{'s' if file_count != 1 else ''} recorded[/dim]")
-
-
-@app.command()
 def status(
     source_id: Optional[str] = typer.Argument(None, help="Source ID to check (default: last published)"),
     version: Optional[str] = typer.Option(None, "--version", "-v", help="Dataset version"),
@@ -226,62 +115,12 @@ def status(
     token: Optional[str] = typer.Option(None, "--token", help="Globus access token"),
     dev_user: Optional[str] = typer.Option(None, "--dev-user", help="Dev-mode user id"),
 ):
-    """Show dataset status.
+    """Show dataset status from backend.
 
-    With no args inside a repo: shows local repo status + backend status.
-    With no args outside a repo: shows backend status of last published dataset.
     With source_id: shows backend status for that dataset.
+    Without: shows backend status of last published dataset.
     """
     resolved = resolve_service(service)
-
-    # Try to show repo status if we're in a repo
-    in_repo = False
-    try:
-        agent = MDFAgent.from_repo(".")
-        in_repo = True
-        state = agent.status()
-
-        staged = state.get("staged_files", [])
-        modified = state.get("modified_files", [])
-        untracked = state.get("untracked_files", [])
-
-        if staged:
-            console.print("\n[bold]Staged files:[/bold]")
-            for f in staged:
-                console.print(f"  [green]+[/green] {f}")
-
-        if modified:
-            console.print("\n[bold]Modified (unstaged):[/bold]")
-            for f in modified:
-                console.print(f"  [yellow]~[/yellow] {f}")
-
-        if untracked:
-            console.print("\n[bold]Untracked files:[/bold]")
-            for f in untracked:
-                console.print(f"  [dim]?[/dim] {f}")
-
-        if not staged and not modified and not untracked:
-            console.print("\n[dim]Working tree clean[/dim]")
-
-        commits = state.get("commits", [])
-        if commits:
-            console.print(f"\n[bold]Recent commits ({len(commits)}):[/bold]")
-            table = Table(show_header=True, header_style="bold")
-            table.add_column("Hash", style="dim", width=8)
-            table.add_column("Message")
-            table.add_column("Time", style="dim")
-
-            for c in commits:
-                table.add_row(
-                    c.get("hash", "")[:7],
-                    c.get("message", ""),
-                    c.get("timestamp", "")[:19] if c.get("timestamp") else "",
-                )
-            console.print(table)
-        else:
-            console.print("\n[dim]No commits yet[/dim]")
-    except NotARepositoryError:
-        pass
 
     # Resolve source_id for backend lookup
     lookup_id = source_id
@@ -289,9 +128,8 @@ def status(
         cfg = GlobalConfig()
         lookup_id = cfg.last_source_id
         if not lookup_id:
-            if not in_repo:
-                console.print("\n[dim]No source_id provided and no last published dataset.[/dim]")
-                console.print("[dim]Usage: mdf status <source_id>[/dim]")
+            console.print("\n[dim]No source_id provided and no last published dataset.[/dim]")
+            console.print("[dim]Usage: mdf status <source_id>[/dim]")
             return
 
     # Backend status lookup
@@ -373,14 +211,27 @@ def status(
 
 
 @app.command()
-@handle_repo_error
-def validate():
+def validate(
+    data: Optional[List[str]] = typer.Argument(None, help="Data paths to validate (optional)"),
+):
     """Validate manifest before publishing.
 
-    Checks for required fields and common issues.
+    Inside a directory with mdf.yaml: validates the manifest.
+    With data args: validates the provided paths.
     Returns exit code 1 if validation fails.
     """
-    agent = MDFAgent.from_repo(".")
+    manifest_path = Path.cwd() / "mdf.yaml"
+    if manifest_path.exists():
+        agent = MDFAgent.from_manifest(".")
+    elif data:
+        from mdf_agent.models.config import ManifestConfig
+        agent = MDFAgent(manifest=ManifestConfig(data_sources=list(data)))
+        console.print("[yellow]No mdf.yaml found — validating data paths only[/yellow]")
+    else:
+        console.print("[red]No mdf.yaml found and no data paths provided[/red]")
+        console.print("[dim]Run [/dim][cyan]mdf manifest init[/cyan][dim] to create one, or pass data paths.[/dim]")
+        raise typer.Exit(code=1)
+
     results = agent.validate()
     errors = results.get("errors", [])
     warnings = results.get("warnings", [])
@@ -404,7 +255,7 @@ def validate():
 
 @app.command()
 def publish(
-    data: Optional[List[str]] = typer.Argument(None, help="Data paths/URIs to publish (direct mode)"),
+    data: Optional[List[str]] = typer.Argument(None, help="Data paths/URIs to publish"),
     title: Optional[str] = typer.Option(None, "--title", "-t", help="Dataset title"),
     author: Optional[List[str]] = typer.Option(None, "--author", "-a", help="Author name (repeatable)"),
     description: Optional[str] = typer.Option(None, "--description", "-d", help="Dataset description"),
@@ -418,11 +269,16 @@ def publish(
 ):
     """Publish dataset to MDF Connect.
 
-    Direct mode (data args provided):
+    Three modes:
+
+    1. Direct (data args provided):
         mdf publish ./data/ --title "My Dataset" --author "Jane" --submit
 
-    Repo mode (inside an MDF repository):
+    2. Manifest (mdf.yaml in current directory):
         mdf publish --submit
+
+    3. Manifest + overrides:
+        mdf publish --title "New Title" --submit
 
     By default, performs a dry run showing the payload.
     Use --submit to actually send to MDF Connect.
@@ -433,7 +289,8 @@ def publish(
 
     resolved = resolve_service(service)
 
-    # Mode detection
+    manifest_path = Path.cwd() / "mdf.yaml"
+
     if data:
         # Direct mode: build manifest on the fly
         if not title:
@@ -455,23 +312,29 @@ def publish(
             organization=cfg.organization,
         )
         agent = MDFAgent(root=None, manifest=manifest)
-    else:
-        # Repo mode
-        try:
-            agent = MDFAgent.from_repo(".")
-        except NotARepositoryError:
-            console.print("\n[red]No data paths provided and not in an MDF repository[/red]")
-            console.print("[dim]Direct mode:[/dim]  mdf publish ./data/ --title \"My Dataset\" --author \"Jane\" --submit")
-            console.print("[dim]Repo mode:[/dim]    cd my_repo && mdf publish --submit")
-            raise typer.Exit(code=1)
 
-        # In repo mode, --title and --author are optional overrides
+    elif manifest_path.exists():
+        # Manifest mode: read mdf.yaml
+        agent = MDFAgent.from_manifest(".")
+
+        # CLI args override manifest values
         if title:
             agent.manifest.title = title
         if author:
             agent.manifest.authors = author
         if description:
             agent.manifest.description = description
+
+        # If no data_sources in manifest, default to current directory
+        if not agent.manifest.data_sources:
+            agent.manifest.data_sources = ["."]
+
+    else:
+        console.print("\n[red]No data paths provided and no mdf.yaml found[/red]")
+        console.print("[dim]Direct mode:[/dim]    mdf publish ./data/ --title \"My Dataset\" --author \"Jane\" --submit")
+        console.print("[dim]Manifest mode:[/dim]  mdf manifest init --title \"My Dataset\" --author \"Jane\"")
+        console.print("[dim]                 mdf publish --submit[/dim]")
+        raise typer.Exit(code=1)
 
     payload = agent.build_submission(test=test, update=update)
 
@@ -783,7 +646,7 @@ def clone(
     output_dir: str = typer.Argument(".", help="Output directory"),
     version: Optional[str] = typer.Option(None, "--version", "-v", help="Specific version to clone"),
     transfer: bool = typer.Option(False, "--transfer", help="Use Globus Transfer (requires GCP)"),
-    derive: bool = typer.Option(False, "--derive", help="Also initialize an MDF repo with derived-from lineage"),
+    derive: bool = typer.Option(False, "--derive", help="Create mdf.yaml with derived-from lineage"),
     service: Optional[str] = typer.Option(None, "--service", "-s", help="Service instance"),
     token: Optional[str] = typer.Option(None, "--token", help="Globus access token"),
     dev_user: Optional[str] = typer.Option(None, "--dev-user", help="Dev-mode user id"),
@@ -875,13 +738,12 @@ def clone(
         console.print(f"  [dim]Transfer task:[/dim] {result['task_id']}")
         console.print(f"  [dim]Monitor:[/dim] {result['monitor_url']}")
 
-    # Optionally initialize a derived MDF repo
+    # Create mdf.yaml with derived-from lineage (no git needed)
     if derive:
-        from pathlib import Path as _Path
         from mdf_agent.models.config import DerivedFrom
 
-        derive_root = _Path(output_dir).resolve()
-        derive_agent = MDFAgent.init(
+        derive_root = Path(output_dir).resolve()
+        derive_agent = MDFAgent.init_manifest(
             path=str(derive_root),
             title=f"Derived from {source_id}",
             authors=["Unknown"],
@@ -890,7 +752,7 @@ def clone(
             DerivedFrom(source_id=source_id, relationship="derived")
         ]
         derive_agent.save_manifest()
-        console.print(f"\n  [green]Initialized git-backed MDF repo with derived-from lineage[/green]")
+        console.print(f"\n  [green]Created mdf.yaml with derived-from lineage[/green]")
     console.print()
 
 

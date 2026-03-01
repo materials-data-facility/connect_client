@@ -41,28 +41,28 @@ my_experiment/
 
 ---
 
-## Step 2: Initialize the dataset
+## Step 2: Create a manifest
 
-You can provide metadata via flags or interactively.
+Create an `mdf.yaml` manifest to store your dataset metadata. You can provide metadata via flags or interactively.
 
 **With flags:**
 
 ```bash
 cd my_experiment
 
-mdf init . \
+mdf manifest init . \
   --title "X-ray Diffraction Study of Iron Oxide Nanoparticles" \
   --author "Jane Doe" \
   --author "John Smith" \
   --description "XRD patterns for Fe2O3 and Fe3O4 nanoparticles"
 ```
 
-**Interactively (just run `mdf init`):**
+**Interactively (just run `mdf manifest init`):**
 
 ```
-$ mdf init .
+$ mdf manifest init .
 
-Initialize MDF dataset
+Create MDF manifest
 
 Dataset title: X-ray Diffraction Study of Iron Oxide Nanoparticles
 Enter author names one per line. Empty line to finish.
@@ -72,68 +72,64 @@ Author:
 Description (optional): XRD patterns for Fe2O3 and Fe3O4 nanoparticles
 ```
 
-**What happens:** This creates two things in your directory:
-- `mdf.yaml` — the dataset manifest (title, authors, description, data sources)
-- `.mdf/` — internal state directory (staged files, commits)
+**What happens:** This creates `mdf.yaml` in your directory — a human-readable file containing your dataset metadata (title, authors, description, data sources).
 
 Output:
 ```
-Initialized MDF repository at .
+Created mdf.yaml in .
   Title: X-ray Diffraction Study of Iron Oxide Nanoparticles
   Authors: Jane Doe, John Smith
 ```
 
 ---
 
-## Step 3: Stage and commit files
+## Step 3: Extract metadata (optional)
 
-Stage your data files. Use `--discover` to automatically extract metadata from CSVs, PDFs, and Excel files:
+Use `--discover` to automatically extract metadata from CSVs, PDFs, and Excel files:
 
 ```bash
-mdf add measurements.csv parameters.json supplementary/ --discover
+mdf manifest discover measurements.csv parameters.json supplementary/calibration.csv
 ```
 
 Output:
 ```
-Staged:
-  + measurements.csv
-  + parameters.json
-  + supplementary/calibration.csv
+Extracted metadata saved to mdf.yaml
+  tabular
+  json_schema
 ```
 
-Now commit:
-
-```bash
-mdf commit -m "Initial dataset with XRD measurements and calibration"
-```
-
-Output:
-```
-Committed: Initial dataset with XRD measurements and calibration
-  3 files recorded
-```
+This saves extracted column names, schemas, and other metadata into the `auto_metadata` section of `mdf.yaml`.
 
 ---
 
-## Step 4: Check status and validate
+## Step 4: Edit the manifest
 
-```bash
-mdf status
+Open `mdf.yaml` and add data sources and any additional metadata:
+
+```yaml
+title: X-ray Diffraction Study of Iron Oxide Nanoparticles
+authors:
+  - Jane Doe
+  - John Smith
+description: XRD patterns for Fe2O3 and Fe3O4 nanoparticles
+
+data_sources:
+  - "."   # upload everything in the current directory
+
+tags:
+  - XRD
+  - iron oxide
+  - nanoparticles
+
+acl:
+  - public
 ```
 
-Output:
-```
-No files staged
+If you omit `data_sources`, `mdf publish` will scan the current directory and upload all non-hidden files.
 
-Commits (1):
-┏━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓
-┃ #  ┃ Message                                          ┃ Files ┃ Time                ┃
-┡━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━┩
-│ 1  │ Initial dataset with XRD measurements and cal... │     3 │ 2026-02-27T14:30:00 │
-└────┴──────────────────────────────────────────────────┴───────┴─────────────────────┘
-```
+---
 
-Validate the manifest before publishing:
+## Step 5: Validate
 
 ```bash
 mdf validate
@@ -146,7 +142,7 @@ Validation passed
 
 ---
 
-## Step 5: Preview the submission (dry run)
+## Step 6: Preview the submission (dry run)
 
 ```bash
 mdf publish
@@ -181,7 +177,7 @@ Review the payload. If something looks wrong, edit `mdf.yaml` and re-run.
 
 ---
 
-## Step 6: Publish
+## Step 7: Publish
 
 When ready, use `--submit` to actually send:
 
@@ -210,20 +206,13 @@ The source ID and version are saved to your global config so you can check statu
 
 ---
 
-## Step 7: Check backend status
+## Step 8: Check backend status
 
 ```bash
 mdf status
 ```
 
-Now shows both local repo state and backend status:
-
 ```
-No files staged
-
-Commits (1):
-...
-
 Backend status: xrd-iron-oxide-nanoparticles v1.0
   Status: pending_curation
   Title: X-ray Diffraction Study of Iron Oxide Nanoparticles
@@ -234,7 +223,7 @@ The `Next` hint tells you what happens next. Your dataset is now in the curation
 
 ---
 
-## Step 8: Curation (curator perspective)
+## Step 9: Curation (curator perspective)
 
 A curator reviews and approves your dataset:
 
@@ -262,7 +251,7 @@ After approval, the backend enqueues a publish job that mints a DOI via DataCite
 
 ---
 
-## Step 9: Discover your published dataset
+## Step 10: Discover your published dataset
 
 Check status again:
 
@@ -347,7 +336,7 @@ Found 1 results for 'iron oxide XRD'
 
 ---
 
-## Step 10: Update the dataset (new version)
+## Step 11: Update the dataset (new version)
 
 You've collected more data and want to publish an update:
 
@@ -389,9 +378,9 @@ Dataset DOI: https://doi.org/10.18126/xxxxx
 
 ---
 
-## Alternative: Direct publish (no repository)
+## Alternative: Direct publish (no manifest)
 
-If you don't need the git-style workflow, publish directly in a single command:
+If you don't need persistent metadata, publish directly in a single command:
 
 ```bash
 mdf publish ./my_experiment/ \
@@ -402,7 +391,7 @@ mdf publish ./my_experiment/ \
   --submit
 ```
 
-This skips `init`/`add`/`commit` entirely. The directory contents become data sources and are uploaded directly.
+This skips manifest creation entirely. The directory contents become data sources and are uploaded directly.
 
 ---
 
@@ -411,15 +400,15 @@ This skips `init`/`add`/`commit` entirely. The directory contents become data so
 ```python
 from mdf_agent import MDFAgent
 
-# Repository mode
-agent = MDFAgent.init(
+# Manifest mode
+agent = MDFAgent.init_manifest(
     path="./my_experiment",
     title="X-ray Diffraction Study of Iron Oxide Nanoparticles",
     authors=["Jane Doe", "John Smith"],
     description="XRD patterns for Fe2O3 and Fe3O4 nanoparticles",
 )
-agent.add("*.csv", "*.json", discover=True)
-agent.commit("Initial dataset")
+agent.manifest.data_sources = [".", "*.csv", "*.json"]
+agent.save_manifest()
 result = agent.publish(service_instance="staging", dry_run=False)
 
 print(f"Published: {result['source_id']} v{result['version']}")
@@ -437,11 +426,10 @@ print(citation.get("bibtex"))
 
 ## What happens at each stage
 
-| Stage | CLI Command | What happens on the backend |
-|-------|-------------|----------------------------|
-| **Init** | `mdf init` | Creates local `mdf.yaml` manifest and `.mdf/` state directory |
-| **Add** | `mdf add` | Records files in local staging area; `--discover` extracts metadata from CSVs/PDFs |
-| **Commit** | `mdf commit` | Snapshots staged files into a local commit record |
+| Stage | CLI Command | What happens |
+|-------|-------------|--------------|
+| **Create manifest** | `mdf manifest init` | Creates `mdf.yaml` with title, authors, description |
+| **Discover** | `mdf manifest discover` | Extracts metadata from CSVs/PDFs, saves to `mdf.yaml` |
 | **Validate** | `mdf validate` | Checks manifest for required fields (title, authors) and common issues |
 | **Dry run** | `mdf publish` | Builds the JSON payload locally, displays it without sending |
 | **Publish** | `mdf publish --submit` | Uploads files via HTTPS PUT, submits metadata to `POST /submit` |

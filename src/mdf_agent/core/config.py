@@ -117,6 +117,9 @@ def validate_config_value(key: str, value: str) -> Optional[str]:
     elif key == "user.email":
         if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", value):
             return f"'{value}' doesn't look like a valid email address"
+    elif key == "globus.local_endpoint_id":
+        if not re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", value.lower()):
+            return f"'{value}' doesn't look like a valid UUID (expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)"
     return None
 
 

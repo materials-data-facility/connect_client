@@ -18,7 +18,7 @@ from mdf_agent.models.config import ManifestConfig
 
 def validate_manifest(
     manifest: ManifestConfig,
-    has_committed_files: bool = False,
+    has_data_files: bool = False,
 ) -> Tuple[List[str], List[str]]:
     """Validate a manifest configuration.
 
@@ -27,8 +27,8 @@ def validate_manifest(
 
     Args:
         manifest: The ManifestConfig to validate.
-        has_committed_files: If True, data_sources will be auto-populated
-            from committed files at build time, so skip that check.
+        has_data_files: If True, data_sources will be auto-populated
+            from directory scanning at build time, so skip that check.
 
     Returns:
         Tuple of (errors, warnings) where each is a list of message strings.
@@ -47,7 +47,7 @@ def validate_manifest(
     if not manifest.authors:
         errors.append("Missing required field: authors")
 
-    if not manifest.update_metadata_only and not manifest.data_sources and not has_committed_files:
+    if not manifest.update_metadata_only and not manifest.data_sources and not has_data_files:
         errors.append("Missing data_sources (or set update_metadata_only)")
 
     if manifest.publication_year is not None:

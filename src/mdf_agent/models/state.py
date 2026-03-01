@@ -1,5 +1,2 @@
-# This module previously contained Commit and RepositoryState models
-# for the custom .mdf/state.json tracking system.
-#
-# These have been replaced by git-backed repository operations.
-# See mdf_agent.core.repository for the new implementation.
+# This module has been removed. The repository state tracking
+# has been replaced by a simpler manifest-based (mdf.yaml) approach.

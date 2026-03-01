@@ -8,12 +8,12 @@ Two ways to publish datasets to the Materials Data Facility: **human-driven CLI*
 
 You're a materials scientist with DFT calculation results. Here's how to publish them.
 
-### Step 1: Initialize your dataset
+### Step 1: Create a manifest
 
 ```bash
 cd examples/dft-alloys
 
-mdf init . \
+mdf manifest init . \
   --title "High-Throughput DFT Study of Binary Intermetallic Alloys" \
   --author "Jane Doe" \
   --author "John Smith" \
@@ -23,61 +23,31 @@ mdf init . \
 
 **Output:**
 ```
-Initialized MDF repository at .
+Created mdf.yaml in .
   Title: High-Throughput DFT Study of Binary Intermetallic Alloys
   Authors: Jane Doe, John Smith, Alice Chen
 ```
 
-### Step 2: Stage your data files
+### Step 2: Extract metadata from data files
 
 ```bash
-mdf add calculations.csv parameters.json --discover
+mdf manifest discover calculations.csv parameters.json
 ```
 
 **Output:**
 ```
-Staged:
-  + calculations.csv
-  + parameters.json
+Extracted metadata saved to mdf.yaml
+  tabular
+  json_schema
 ```
 
-The `--discover` flag automatically extracts metadata:
+The `discover` command automatically extracts metadata:
 - CSV: 6 columns, 15 rows (composition, formation_energy, volume, etc.)
 - JSON: VASP 6.3.2, PBE functional, PAW pseudopotentials
 
-### Step 3: Commit your changes
+### Step 3: Edit the manifest
 
-```bash
-mdf commit -m "Initial dataset with 15 Al-X intermetallic calculations"
-```
-
-**Output:**
-```
-Committed: Initial dataset with 15 Al-X intermetallic calculations
-  2 files recorded
-```
-
-### Step 4: Check repository status
-
-```bash
-mdf status
-```
-
-**Output:**
-```
-No files staged
-
-Commits (1):
-┏━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓
-┃ #  ┃ Message                                           ┃ Files ┃ Time                ┃
-┡━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━┩
-│ 1  │ Initial dataset with 15 Al-X intermetallic calc… │     2 │ 2026-01-31T06:15:30 │
-└────┴───────────────────────────────────────────────────┴───────┴─────────────────────┘
-```
-
-### Step 5: Add data sources to manifest
-
-Edit `mdf.yaml` to specify where data lives:
+Open `mdf.yaml` and add data sources and tags:
 
 ```yaml
 title: High-Throughput DFT Study of Binary Intermetallic Alloys
@@ -101,7 +71,7 @@ acl:
   - public
 ```
 
-### Step 6: Validate before publishing
+### Step 4: Validate before publishing
 
 ```bash
 mdf validate
@@ -112,7 +82,7 @@ mdf validate
 Validation passed
 ```
 
-### Step 7: Preview the submission
+### Step 5: Preview the submission
 
 ```bash
 mdf publish --dry-run
@@ -121,25 +91,22 @@ mdf publish --dry-run
 **Output:** (syntax-highlighted JSON)
 ```json
 {
-  "dc": {
-    "titles": [{"title": "High-Throughput DFT Study of Binary Intermetallic Alloys"}],
-    "creators": [
-      {"creatorName": "Doe, Jane", "familyName": "Doe", "givenName": "Jane"},
-      {"creatorName": "Smith, John", "familyName": "Smith", "givenName": "John"},
-      {"creatorName": "Chen, Alice", "familyName": "Chen", "givenName": "Alice"}
-    ],
-    "publisher": "Materials Data Facility",
-    "publicationYear": "2026",
-    "resourceType": {"resourceTypeGeneral": "Dataset", "resourceType": "Dataset"},
-    "descriptions": [{"description": "Formation energies...", "descriptionType": "Other"}]
-  },
+  "title": "High-Throughput DFT Study of Binary Intermetallic Alloys",
+  "authors": [
+    {"name": "Jane Doe"},
+    {"name": "John Smith"},
+    {"name": "Alice Chen"}
+  ],
+  "description": "Formation energies and electronic properties...",
+  "publisher": "Materials Data Facility",
+  "publication_year": 2026,
   "data_sources": ["./calculations.csv", "./parameters.json"],
   "test": false,
   "update": false
 }
 ```
 
-### Step 8: Publish to MDF Connect
+### Step 6: Publish to MDF Connect
 
 ```bash
 # Test submission (sandbox)
@@ -259,7 +226,7 @@ manifest = create_manifest(
 )
 ```
 
-> I've created the manifest. Let me add the data sources and validate.
+> I've created the manifest. Let me validate and preview.
 
 ```python
 # Step 3: Validate and preview
@@ -270,14 +237,11 @@ result = validate_and_preview("examples/xrd-patterns")
 >
 > ```json
 > {
->   "dc": {
->     "titles": [{"title": "XRD Patterns of Iron Oxide Nanoparticles"}],
->     "creators": [
->       {"creatorName": "Johnson, Ben", ...},
->       {"creatorName": "Williams, Sarah", ...}
->     ],
->     ...
->   },
+>   "title": "XRD Patterns of Iron Oxide Nanoparticles",
+>   "authors": [
+>     {"name": "Johnson, Ben"},
+>     {"name": "Williams, Sarah"}
+>   ],
 >   "data_sources": ["./sample_001.csv", "./sample_002.csv"],
 >   "test": false
 > }
@@ -304,7 +268,7 @@ result = publish(
 >
 > - Source ID: `mdf-xrd-iron-oxide-2026`
 > - Status: Processing in test environment
-> - Check status: `mdf status --source-id mdf-xrd-iron-oxide-2026`
+> - Check status: `mdf status mdf-xrd-iron-oxide-2026`
 >
 > Once you verify it looks correct, say "publish to production" and I'll submit the final version.
 
@@ -315,12 +279,12 @@ result = publish(
 | Step | Human (CLI) | AI Agent |
 |------|-------------|----------|
 | Understand data | You read files manually | `scan_folder()` auto-extracts |
-| Create manifest | `mdf init` with flags | `create_manifest()` from conversation |
+| Create manifest | `mdf manifest init` with flags | `create_manifest()` from conversation |
 | Add metadata | Edit YAML by hand | Claude fills from context |
 | Validate | `mdf validate` | `validate_and_preview()` |
 | Publish | `mdf publish --submit` | `publish(submit=True)` |
 
-**The AI workflow reduces a 10-step process to a conversation.**
+**The AI workflow reduces a multi-step process to a conversation.**
 
 ---
 
@@ -336,9 +300,9 @@ pip install -e .
 
 # Human workflow
 cd examples/dft-alloys
-mdf init . --title "My Dataset" --author "Your Name"
-mdf add *.csv *.json
-mdf commit -m "Initial commit"
+mdf manifest init . --title "My Dataset" --author "Your Name"
+mdf manifest discover *.csv *.json
+vim mdf.yaml                  # add data_sources
 mdf validate
 mdf publish --dry-run
 
@@ -367,13 +331,12 @@ mdf publish --dry-run
 
 | Command | Description |
 |---------|-------------|
-| `mdf init` | Create new dataset repository |
-| `mdf add` | Stage files (with `--discover` for auto-metadata) |
-| `mdf commit` | Record staged files |
-| `mdf status` | Show repository state |
+| `mdf manifest init` | Create mdf.yaml manifest |
+| `mdf manifest discover` | Extract metadata from files into mdf.yaml |
 | `mdf validate` | Check manifest before publishing |
 | `mdf publish` | Submit to MDF Connect (`--dry-run` for preview) |
-| `mdf clone` | Derive from existing dataset |
+| `mdf status` | Check backend status |
+| `mdf clone` | Download a dataset (`--derive` to create mdf.yaml with lineage) |
 
 ---
 

@@ -16,7 +16,7 @@ from mdf_agent.core.agent import (
 
 
 def test_build_submission_shape(tmp_path: Path):
-    agent = MDFAgent.init(
+    agent = MDFAgent.init_manifest(
         path=str(tmp_path),
         title="Test Dataset",
         authors=["Doe, Jane"],
@@ -34,7 +34,7 @@ def test_build_submission_shape(tmp_path: Path):
 
 
 def test_validate_missing_fields(tmp_path: Path):
-    agent = MDFAgent.init(
+    agent = MDFAgent.init_manifest(
         path=str(tmp_path),
         title="Test Dataset",
         authors=["Doe, Jane"],

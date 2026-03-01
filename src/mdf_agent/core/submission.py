@@ -131,18 +131,16 @@ def build_submission(
 
     data_sources = resolve_data_sources(manifest.data_sources, root)
 
-    # Auto-populate data_sources from git-tracked files if empty
-    if not data_sources and root:
-        from mdf_agent.core.repository import Repository
-        try:
-            repo = Repository.load(root)
-            tracked = repo.get_tracked_files()
-            if tracked:
-                data_sources = [
-                    str((root / f).resolve()) for f in tracked
-                ]
-        except Exception:
-            pass
+    # Auto-populate data_sources from directory scan if empty
+    if not data_sources and root and root.is_dir():
+        scanned = [
+            str(f.resolve())
+            for f in sorted(root.rglob("*"))
+            if f.is_file() and f.name not in ("mdf.yaml", ".gitignore")
+            and not any(part.startswith(".") for part in f.relative_to(root).parts)
+        ]
+        if scanned:
+            data_sources = scanned
 
     submission = Submission(
         title=metadata.get("title"),

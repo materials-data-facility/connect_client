@@ -1,18 +1,13 @@
 """MDF Agent - Primary Python API.
 
 This module provides the main MDFAgent class, which is the primary interface
-for interacting with MDF datasets programmatically. It supports two modes:
-
-1. Repository mode: Work with a git-style .mdf/ repository for tracking changes
-2. Direct mode: Build and submit datasets without local state
+for interacting with MDF datasets programmatically.
 
 Examples:
-    Repository mode::
+    Manifest mode (mdf.yaml in directory)::
 
-        agent = MDFAgent.init("./my_dataset", title="My Dataset", authors=["Jane Doe"])
-        agent.add("data/*.csv", discover=True)
-        agent.commit("Add experimental data")
-        result = agent.publish(test=True)
+        agent = MDFAgent.from_manifest("./my_dataset")
+        result = agent.publish(dry_run=False)
 
     Direct mode::
 
@@ -32,8 +27,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Callable, Dict, List, NamedTuple, Optional
 
-from mdf_agent.core.manifest import load_manifest, save_manifest
-from mdf_agent.core.repository import Repository
+from mdf_agent.core.manifest import load_manifest, save_manifest, init_manifest
 from mdf_agent.core.submission import build_submission
 from mdf_agent.core.validation import validate_manifest
 from mdf_agent.core.backend_client import BackendClient
@@ -492,22 +486,23 @@ class MDFAgent:
     publishing datasets to the Materials Data Facility (MDF).
 
     Attributes:
-        root: Path to the dataset directory (repository mode) or None (direct mode).
-        repo: Repository instance for git-style operations, or None.
+        root: Path to the dataset directory or None (direct mode).
         manifest: The ManifestConfig containing dataset metadata.
     """
 
     def __init__(self, root: Optional[Path] = None, manifest: Optional[ManifestConfig] = None):
         self.root = root
-        self.repo: Optional[Repository] = None
         if root is not None:
-            self.repo = Repository.load(root)
-            self.manifest = self.repo.load_manifest()
+            manifest_path = root / "mdf.yaml"
+            if manifest_path.exists():
+                self.manifest = load_manifest(manifest_path)
+            else:
+                self.manifest = manifest or ManifestConfig()
         else:
             self.manifest = manifest or ManifestConfig()
 
     @classmethod
-    def init(
+    def init_manifest(
         cls,
         path: str,
         title: str,
@@ -516,63 +511,73 @@ class MDFAgent:
         publisher: Optional[str] = None,
         publication_year: Optional[int] = None,
     ) -> "MDFAgent":
+        """Create an mdf.yaml manifest in the given directory."""
         root = Path(path).resolve()
-        repo = Repository.init_repo(
-            root,
-            title=title,
-            authors=authors,
-            description=description,
-            publisher=publisher,
-            publication_year=publication_year,
-        )
-        agent = cls.__new__(cls)
-        agent.root = root
-        agent.repo = repo
-        agent.manifest = repo.load_manifest()
+        root.mkdir(parents=True, exist_ok=True)
+        manifest_path = root / "mdf.yaml"
+        if not manifest_path.exists():
+            init_manifest(
+                manifest_path,
+                title=title,
+                authors=authors,
+                description=description,
+                publisher=publisher,
+                publication_year=publication_year,
+            )
+        agent = cls(root=root)
         return agent
 
     @classmethod
-    def from_repo(cls, path: str) -> "MDFAgent":
+    def from_manifest(cls, path: str) -> "MDFAgent":
+        """Load an agent from a directory containing mdf.yaml."""
         root = Path(path).resolve()
+        from mdf_agent.core.exceptions import NoManifestError
+        if not (root / "mdf.yaml").exists():
+            raise NoManifestError(str(root))
         return cls(root=root)
 
     def save_manifest(self) -> None:
-        if self.repo is None:
-            raise ValueError("No repository attached")
-        self.repo.save_manifest(self.manifest)
+        if self.root is None:
+            raise ValueError("No directory attached — cannot save manifest")
+        save_manifest(self.manifest, self.root / "mdf.yaml")
 
-    def add(self, *paths: str, discover: Optional[bool] = None) -> List[str]:
-        if self.repo is None:
-            raise ValueError("Repository mode required for add")
-        staged = self.repo.stage(paths)
+    def discover(self, *paths: str) -> Dict[str, Any]:
+        """Run metadata extraction on files and merge into manifest.
 
-        if discover or (discover is None and self.manifest.auto_discover):
-            files = [str((self.root / path).resolve()) for path in staged]
-            extracted = discover_metadata(files)
-            if extracted:
-                current = self.manifest.auto_metadata or {}
-                current.update(extracted)
-                self.manifest.auto_metadata = current
-                self.save_manifest()
-                # Stage the updated manifest
-                self.repo.stage(["mdf.yaml"])
-        return staged
+        Args:
+            paths: File paths or glob patterns to extract metadata from.
 
-    def commit(self, message: str) -> Dict[str, Any]:
-        if self.repo is None:
-            raise ValueError("Repository mode required for commit")
-        return self.repo.commit(message)
-
-    def status(self) -> Dict[str, Any]:
-        if self.repo is None:
-            raise ValueError("Repository mode required for status")
-        return self.repo.get_status()
+        Returns:
+            Dict of extracted metadata.
+        """
+        if self.root is None:
+            raise ValueError("Need a directory for discover")
+        resolved_files: List[str] = []
+        for pattern in paths:
+            matches = list(self.root.glob(pattern))
+            if not matches:
+                candidate = self.root / pattern
+                if candidate.exists():
+                    matches = [candidate]
+            for match in matches:
+                if match.is_file():
+                    resolved_files.append(str(match.resolve()))
+        extracted = discover_metadata(resolved_files)
+        if extracted:
+            current = self.manifest.auto_metadata or {}
+            current.update(extracted)
+            self.manifest.auto_metadata = current
+            self.save_manifest()
+        return extracted
 
     def validate(self) -> Dict[str, List[str]]:
-        has_tracked_data = bool(
-            self.repo and self.repo.get_tracked_files()
+        has_data = bool(self.manifest.data_sources) or (
+            self.root is not None and any(
+                f.is_file() for f in self.root.iterdir()
+                if f.name != "mdf.yaml" and not f.name.startswith(".")
+            )
         )
-        errors, warnings = validate_manifest(self.manifest, has_committed_files=has_tracked_data)
+        errors, warnings = validate_manifest(self.manifest, has_data_files=has_data)
         return {"errors": errors, "warnings": warnings}
 
     def build_submission(self, test: bool = False, update: bool = False) -> Dict[str, Any]:

@@ -14,28 +14,29 @@ from mdf_agent.cli.main import app
 runner = CliRunner()
 
 
-class TestInitCommand:
-    """Tests for 'mdf init' command."""
+class TestManifestInitCommand:
+    """Tests for 'mdf manifest init' command."""
 
-    def test_init_creates_repository(self):
-        """mdf init creates git repo and mdf.yaml."""
+    def test_manifest_init_creates_yaml(self):
+        """mdf manifest init creates mdf.yaml."""
         with TemporaryDirectory() as tmpdir:
             result = runner.invoke(
                 app,
-                ["init", tmpdir, "--title", "Test Dataset", "--author", "Jane Doe"],
+                ["manifest", "init", tmpdir, "--title", "Test Dataset", "--author", "Jane Doe"],
             )
             assert result.exit_code == 0
-            assert "Initialized" in result.stdout
-            assert (Path(tmpdir) / ".git").is_dir()
+            assert "Created mdf.yaml" in result.stdout
             assert (Path(tmpdir) / "mdf.yaml").is_file()
+            # No .git directory created
+            assert not (Path(tmpdir) / ".git").is_dir()
 
-    def test_init_with_multiple_authors(self):
-        """mdf init with multiple --author options."""
+    def test_manifest_init_with_multiple_authors(self):
+        """mdf manifest init with multiple --author options."""
         with TemporaryDirectory() as tmpdir:
             result = runner.invoke(
                 app,
                 [
-                    "init", tmpdir,
+                    "manifest", "init", tmpdir,
                     "--title", "Test Dataset",
                     "--author", "Jane Doe",
                     "--author", "John Smith",
@@ -43,18 +44,17 @@ class TestInitCommand:
             )
             assert result.exit_code == 0
 
-            # Check manifest has both authors
             import yaml
             manifest = yaml.safe_load((Path(tmpdir) / "mdf.yaml").read_text())
             assert len(manifest["authors"]) == 2
 
-    def test_init_with_all_options(self):
-        """mdf init with all options."""
+    def test_manifest_init_with_all_options(self):
+        """mdf manifest init with all options."""
         with TemporaryDirectory() as tmpdir:
             result = runner.invoke(
                 app,
                 [
-                    "init", tmpdir,
+                    "manifest", "init", tmpdir,
                     "--title", "Test Dataset",
                     "--author", "Jane Doe",
                     "--description", "A test dataset",
@@ -71,102 +71,34 @@ class TestInitCommand:
             assert manifest["publisher"] == "Test Publisher"
             assert manifest["publication_year"] == 2025
 
-    def test_init_missing_title_fails(self):
-        """mdf init without --title fails."""
+    def test_manifest_init_missing_title_fails(self):
+        """mdf manifest init without --title fails."""
         with TemporaryDirectory() as tmpdir:
             result = runner.invoke(
                 app,
-                ["init", tmpdir, "--author", "Jane Doe"],
+                ["manifest", "init", tmpdir, "--author", "Jane Doe"],
             )
             assert result.exit_code != 0
 
-    def test_init_missing_author_fails(self):
-        """mdf init without --author fails."""
+    def test_manifest_init_missing_author_fails(self):
+        """mdf manifest init without --author fails."""
         with TemporaryDirectory() as tmpdir:
             result = runner.invoke(
                 app,
-                ["init", tmpdir, "--title", "Test"],
+                ["manifest", "init", tmpdir, "--title", "Test"],
             )
             assert result.exit_code != 0
 
-
-class TestAddCommand:
-    """Tests for 'mdf add' command."""
-
-    def test_add_stages_files(self):
-        """mdf add stages files."""
-        import os
+    def test_manifest_init_no_overwrite(self):
+        """mdf manifest init refuses to overwrite existing mdf.yaml."""
         with TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "data.csv").write_text("a,b,c")
-
-            # Initialize repo first
-            runner.invoke(
-                app,
-                ["init", str(root), "--title", "Test", "--author", "Jane"],
-            )
-
-            # Change to tmpdir for add command (CLI uses from_repo("."))
-            original_cwd = os.getcwd()
-            try:
-                os.chdir(root)
-                result = runner.invoke(
-                    app,
-                    ["add", "data.csv"],
-                    catch_exceptions=False,
-                )
-                assert result.exit_code == 0
-                assert "Staged:" in result.stdout
-                assert "data.csv" in result.stdout
-            finally:
-                os.chdir(original_cwd)
-
-    def test_add_with_discover(self):
-        """mdf add with --discover option."""
-        with TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "data.csv").write_text("a,b,c\n1,2,3")
-
-            runner.invoke(
-                app,
-                ["init", str(root), "--title", "Test", "--author", "Jane"],
-            )
-
-            # The discover flag should extract metadata
-            # Actual behavior depends on implementation
-
-
-class TestCommitCommand:
-    """Tests for 'mdf commit' command."""
-
-    def test_commit_requires_staged_files(self):
-        """mdf commit fails if nothing staged."""
-        with TemporaryDirectory() as tmpdir:
-            runner.invoke(
-                app,
-                ["init", tmpdir, "--title", "Test", "--author", "Jane"],
-            )
-
+            (Path(tmpdir) / "mdf.yaml").write_text("title: Existing\n")
             result = runner.invoke(
                 app,
-                ["commit", "-m", "Test commit"],
+                ["manifest", "init", tmpdir, "--title", "New", "--author", "Jane"],
             )
-            # Should fail because no files are staged
-            # (depends on current directory context)
-
-
-class TestStatusCommand:
-    """Tests for 'mdf status' command."""
-
-    def test_status_shows_state(self):
-        """mdf status shows repository state."""
-        with TemporaryDirectory() as tmpdir:
-            runner.invoke(
-                app,
-                ["init", tmpdir, "--title", "Test", "--author", "Jane"],
-            )
-
-            # Status command should work after init
+            assert result.exit_code != 0
+            assert "already exists" in result.stdout
 
 
 class TestValidateCommand:
@@ -178,61 +110,87 @@ class TestValidateCommand:
             root = Path(tmpdir)
             (root / "data.csv").write_text("a,b,c")
 
+            # Create manifest with data source
             runner.invoke(
                 app,
-                ["init", str(root), "--title", "Test", "--author", "Jane"],
+                ["manifest", "init", str(root), "--title", "Test", "--author", "Jane"],
             )
 
-            # Add data source to manifest
             import yaml
             manifest_path = root / "mdf.yaml"
             manifest = yaml.safe_load(manifest_path.read_text())
             manifest["data_sources"] = ["./data.csv"]
             manifest_path.write_text(yaml.safe_dump(manifest))
 
-            # Note: validate runs in cwd, need to handle path context
-
-    def test_validate_missing_title_fails(self):
-        """mdf validate fails when title is missing."""
-        import subprocess
-        with TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            subprocess.run(["git", "init"], cwd=str(root), capture_output=True, check=True)
-            (root / "mdf.yaml").write_text("authors:\n  - Jane Doe\n")
-            subprocess.run(["git", "add", "mdf.yaml"], cwd=str(root), capture_output=True, check=True)
-            subprocess.run(["git", "commit", "-m", "init"], cwd=str(root), capture_output=True, check=True)
-
-            # Validate should fail
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(root)
+                result = runner.invoke(app, ["validate"])
+                assert result.exit_code == 0
+                assert "Validation passed" in result.stdout
+            finally:
+                os.chdir(original_cwd)
 
 
 class TestPublishCommand:
     """Tests for 'mdf publish' command."""
 
-    def test_publish_dry_run(self):
-        """mdf publish --dry-run shows payload."""
+    def test_publish_direct_dry_run(self):
+        """mdf publish with data args shows dry run payload."""
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "data.csv").write_text("a,b,c")
+
+            result = runner.invoke(
+                app,
+                ["publish", str(root / "data.csv"), "--title", "Test", "--author", "Jane"],
+            )
+            assert result.exit_code == 0
+            assert "Dry run" in result.stdout
+
+    def test_publish_manifest_mode_dry_run(self):
+        """mdf publish reads mdf.yaml when no data args provided."""
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             (root / "data.csv").write_text("a,b,c")
 
             runner.invoke(
                 app,
-                ["init", str(root), "--title", "Test", "--author", "Jane"],
+                ["manifest", "init", str(root), "--title", "Test", "--author", "Jane"],
             )
 
-            # Add data source
             import yaml
             manifest_path = root / "mdf.yaml"
             manifest = yaml.safe_load(manifest_path.read_text())
             manifest["data_sources"] = ["./data.csv"]
             manifest_path.write_text(yaml.safe_dump(manifest))
 
-            # Dry run should not submit
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(root)
+                result = runner.invoke(app, ["publish"])
+                assert result.exit_code == 0
+                assert "Dry run" in result.stdout
+            finally:
+                os.chdir(original_cwd)
+
+    def test_publish_no_data_no_manifest_fails(self):
+        """mdf publish fails when no data paths and no mdf.yaml."""
+        with TemporaryDirectory() as tmpdir:
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                result = runner.invoke(app, ["publish"])
+                assert result.exit_code != 0
+                assert "No data paths" in result.stdout or "no mdf.yaml" in result.stdout
+            finally:
+                os.chdir(original_cwd)
 
 
 class TestCloneCommand:
     """Tests for 'mdf clone' command."""
 
-    def test_clone_creates_manifest(self):
+    def test_clone_help(self):
         """mdf clone --help shows download options."""
         result = runner.invoke(app, ["clone", "--help"])
         assert result.exit_code == 0
@@ -249,23 +207,12 @@ class TestCLIHelp:
         assert result.exit_code == 0
         assert "MDF Agent CLI" in result.stdout
 
-    def test_init_help(self):
-        """mdf init --help shows options."""
-        result = runner.invoke(app, ["init", "--help"])
+    def test_manifest_help(self):
+        """mdf manifest --help shows subcommands."""
+        result = runner.invoke(app, ["manifest", "--help"])
         assert result.exit_code == 0
-        assert "--title" in result.stdout
-        assert "--author" in result.stdout
-
-    def test_add_help(self):
-        """mdf add --help shows options."""
-        result = runner.invoke(app, ["add", "--help"])
-        assert result.exit_code == 0
-
-    def test_commit_help(self):
-        """mdf commit --help shows options."""
-        result = runner.invoke(app, ["commit", "--help"])
-        assert result.exit_code == 0
-        assert "-m" in result.stdout or "--message" in result.stdout
+        assert "init" in result.stdout
+        assert "discover" in result.stdout
 
     def test_publish_help(self):
         """mdf publish --help shows options."""
@@ -282,6 +229,22 @@ class TestCLIHelp:
         """mdf clone --help shows options."""
         result = runner.invoke(app, ["clone", "--help"])
         assert result.exit_code == 0
+
+    def test_no_init_command(self):
+        """mdf init is no longer a command."""
+        result = runner.invoke(app, ["init", "--help"])
+        # Should fail or show error — init is gone
+        assert result.exit_code != 0
+
+    def test_no_add_command(self):
+        """mdf add is no longer a command."""
+        result = runner.invoke(app, ["add", "--help"])
+        assert result.exit_code != 0
+
+    def test_no_commit_command(self):
+        """mdf commit is no longer a command."""
+        result = runner.invoke(app, ["commit", "--help"])
+        assert result.exit_code != 0
 
 
 class TestAuthCommands:

@@ -7,9 +7,9 @@ class MDFError(Exception):
     pass
 
 
-class NotARepositoryError(MDFError):
-    """Raised when a command requires an MDF repository but none exists."""
+class NoManifestError(MDFError):
+    """Raised when a command requires an mdf.yaml manifest but none exists."""
 
     def __init__(self, path: str = "."):
         self.path = path
-        super().__init__(f"Not an MDF repository (no mdf.yaml found in a git repo)")
+        super().__init__(f"No mdf.yaml found in {path}")

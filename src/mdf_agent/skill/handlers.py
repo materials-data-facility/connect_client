@@ -63,7 +63,7 @@ def create_manifest(
     authors: List[str],
     description: Optional[str] = None,
 ) -> Dict[str, Any]:
-    agent = MDFAgent.init(path=path, title=title, authors=authors, description=description)
+    agent = MDFAgent.init_manifest(path=path, title=title, authors=authors, description=description)
     return agent.manifest.model_dump()
 
 
@@ -83,7 +83,7 @@ def suggest_mappings(headers: List[str]) -> Dict[str, str]:
 
 @agent_safe
 def validate_and_preview(path: str) -> Dict[str, Any]:
-    agent = MDFAgent.from_repo(path)
+    agent = MDFAgent.from_manifest(path)
     validation = agent.validate()
     submission = agent.build_submission()
     return {"validation": validation, "submission": submission}
@@ -104,7 +104,7 @@ def publish(
 ) -> Dict[str, Any]:
     # client_id/scope are retained for backward compatibility with existing skill callers.
     _ = (client_id, scope)
-    agent = MDFAgent.from_repo(path)
+    agent = MDFAgent.from_manifest(path)
     return agent.publish(
         test=test,
         update=update,

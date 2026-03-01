@@ -17,13 +17,12 @@ pip install -e ".[extractors]"
 # Authenticate with Globus
 mdf login
 
-# Publish a dataset directly
+# Publish a dataset directly (one command)
 mdf publish ./data/ --title "My Dataset" --author "Jane Doe" --submit
 
-# Or use the repository workflow
-mdf init --title "My Dataset" --author "Jane Doe"
-mdf add ./data
-mdf commit -m "Initial commit"
+# Or use a manifest for persistent metadata
+mdf manifest init --title "My Dataset" --author "Jane Doe"
+vim mdf.yaml                    # edit metadata, add data_sources
 mdf publish --submit
 
 # Check status
@@ -49,20 +48,27 @@ mdf whoami                    # Show current auth status
 ### Publishing datasets
 
 ```bash
-# Direct mode (no repository needed)
+# Direct mode (no manifest needed)
 mdf publish ./data/ --title "My Dataset" --author "Jane" --submit
 mdf publish ./data/ --title "My Dataset" --author "Jane" --dry-run  # Preview payload
 
-# Repository mode
-mdf init --title "Title" --author "Name"   # Initialize dataset (interactive if no flags)
-mdf add ./data --discover                  # Stage files with auto-metadata extraction
-mdf commit -m "message"                    # Commit changes
-mdf validate                               # Check manifest
-mdf publish --submit                       # Submit to MDF
+# Manifest mode (mdf.yaml in current directory)
+mdf manifest init --title "Title" --author "Name"   # Create mdf.yaml (interactive if no flags)
+mdf manifest discover *.csv                          # Extract metadata from files into mdf.yaml
+mdf validate                                         # Check manifest
+mdf publish --submit                                 # Submit to MDF
 
 # Update an existing dataset
 mdf update --data ./new_data/ --submit             # Updates last published dataset
 mdf update my_dataset_v1 --title "New" --submit    # Explicit source_id
+```
+
+### Manifest management
+
+```bash
+mdf manifest init                        # Create mdf.yaml (interactive)
+mdf manifest init --title "T" --author "A"  # Create mdf.yaml (non-interactive)
+mdf manifest discover *.csv *.json       # Extract metadata from files into mdf.yaml
 ```
 
 ### Discoverability
@@ -164,10 +170,14 @@ pending = agent.pending(service_instance="staging")
 agent.approve("my_dataset_v1", notes="LGTM", service_instance="staging")
 agent.reject("my_dataset_v1", reason="Missing methods", service_instance="staging")
 
-# Publishing (repository mode)
-agent = MDFAgent.init("./my_data", title="My Dataset", authors=["Jane Doe"])
-agent.add("data/*.csv", discover=True)
-agent.commit("Add experimental data")
+# Publishing (manifest mode)
+agent = MDFAgent.init_manifest(
+    "./my_data",
+    title="My Dataset",
+    authors=["Jane Doe"],
+)
+agent.manifest.data_sources = ["./data"]
+agent.save_manifest()
 result = agent.publish(service_instance="staging", dry_run=False)
 
 # Streaming
