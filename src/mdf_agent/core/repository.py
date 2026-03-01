@@ -1,54 +1,51 @@
-"""Repository management for git-style MDF workflow.
+"""Repository management for git-backed MDF workflow.
 
-This module provides the Repository class which manages the .mdf/ directory
-and tracks the state of a dataset through staging and commits.
+This module provides the Repository class which manages a git-backed
+dataset directory for tracking staged files, commits, and metadata.
 
 The repository structure:
     my_dataset/
     ├── mdf.yaml           # Manifest configuration
-    ├── .mdf/              # Repository state directory
-    │   └── state.json     # Staged files, commits, etc.
+    ├── .gitignore          # Ignores .mdf/ transient state
     └── data/              # User's data files
 """
 
 from __future__ import annotations
 
-import json
+import subprocess
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 
 from mdf_agent.core.exceptions import NotARepositoryError
 from mdf_agent.core.manifest import init_manifest, load_manifest, save_manifest
-from mdf_agent.models.state import Commit, RepositoryState
+
+
+def _run_git(args: List[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess:
+    """Run a git command and return the result."""
+    return subprocess.run(
+        ["git"] + args,
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        check=check,
+    )
 
 
 class Repository:
-    """Manages a git-style MDF repository.
+    """Manages a git-backed MDF repository.
 
-    A repository tracks the state of a dataset directory, including:
-    - Staged files (ready for the next commit)
-    - Commit history
-    - Manifest configuration (mdf.yaml)
+    A repository tracks the state of a dataset directory using git,
+    including staging, commits, and metadata via mdf.yaml.
 
     Attributes:
         root: The root directory of the repository.
-        state: The current RepositoryState.
-        state_file: Relative path to state.json.
         manifest_file: Relative path to mdf.yaml.
     """
 
-    state_file = Path(".mdf/state.json")
     manifest_file = Path("mdf.yaml")
 
-    def __init__(self, root: Path, state: RepositoryState) -> None:
-        """Initialize a Repository instance.
-
-        Args:
-            root: Root directory of the repository.
-            state: The RepositoryState to use.
-        """
+    def __init__(self, root: Path) -> None:
         self.root = root
-        self.state = state
 
     @classmethod
     def init_repo(
@@ -61,7 +58,12 @@ class Repository:
         publication_year: int | str | None = None,
     ) -> "Repository":
         root.mkdir(parents=True, exist_ok=True)
-        (root / ".mdf").mkdir(parents=True, exist_ok=True)
+
+        # Initialize git repo if not already one
+        if not (root / ".git").is_dir():
+            _run_git(["init"], cwd=root)
+
+        # Create mdf.yaml if it doesn't exist
         manifest_path = root / cls.manifest_file
         if not manifest_path.exists():
             init_manifest(
@@ -72,19 +74,39 @@ class Repository:
                 publisher=publisher,
                 publication_year=publication_year,
             )
-        state = RepositoryState(root=str(root))
-        repo = cls(root=root, state=state)
-        repo._save_state()
-        return repo
+
+        # Create .gitignore if it doesn't exist
+        gitignore_path = root / ".gitignore"
+        if not gitignore_path.exists():
+            gitignore_path.write_text(".mdf/\n", encoding="utf-8")
+
+        # Stage and commit initial files
+        files_to_add = ["mdf.yaml"]
+        if gitignore_path.exists():
+            files_to_add.append(".gitignore")
+        _run_git(["add"] + files_to_add, cwd=root)
+
+        # Only commit if there are staged changes
+        status = _run_git(["diff", "--cached", "--quiet"], cwd=root, check=False)
+        if status.returncode != 0:
+            _run_git(["commit", "-m", "Initialize MDF dataset"], cwd=root)
+
+        return cls(root=root)
 
     @classmethod
     def load(cls, root: Path) -> "Repository":
-        state_path = root / cls.state_file
-        if not state_path.exists():
+        """Load an existing MDF repository.
+
+        A valid MDF repository is a git repo containing mdf.yaml.
+        """
+        manifest_path = root / cls.manifest_file
+        if not manifest_path.exists():
             raise NotARepositoryError(str(root))
-        state_data = json.loads(state_path.read_text(encoding="utf-8"))
-        state = RepositoryState(**state_data)
-        return cls(root=root, state=state)
+        # Verify it's a git repo
+        result = _run_git(["rev-parse", "--git-dir"], cwd=root, check=False)
+        if result.returncode != 0:
+            raise NotARepositoryError(str(root))
+        return cls(root=root)
 
     def load_manifest(self):
         return load_manifest(self.root / self.manifest_file)
@@ -93,6 +115,17 @@ class Repository:
         save_manifest(config, self.root / self.manifest_file)
 
     def stage(self, paths: Iterable[str]) -> List[str]:
+        """Stage files for the next commit using git add.
+
+        Args:
+            paths: File paths or glob patterns to stage.
+
+        Returns:
+            List of resolved file paths that were staged.
+
+        Raises:
+            FileNotFoundError: If no files match the provided paths.
+        """
         resolved: List[str] = []
         for pattern in paths:
             matches = list(self.root.glob(pattern))
@@ -101,31 +134,122 @@ class Repository:
                 if candidate.exists():
                     matches = [candidate]
             for match in matches:
-                if match.is_dir():
-                    resolved.append(str(match.relative_to(self.root)))
-                else:
-                    resolved.append(str(match.relative_to(self.root)))
+                resolved.append(str(match.relative_to(self.root)))
         if not resolved:
             raise FileNotFoundError("No files matched the provided paths")
-        staged = set(self.state.staged_files)
-        staged.update(resolved)
-        self.state.staged_files = sorted(staged)
-        self._save_state()
+
+        _run_git(["add"] + resolved, cwd=self.root)
         return resolved
 
-    def commit(self, message: str) -> Commit:
-        if not self.state.staged_files:
-            raise ValueError("No staged files to commit")
-        commit = Commit(message=message, staged_files=list(self.state.staged_files))
-        self.state.commits.append(commit)
-        self.state.staged_files = []
-        self._save_state()
-        return commit
+    def commit(self, message: str) -> dict:
+        """Commit staged changes using git commit.
 
-    def _save_state(self) -> None:
-        state_path = self.root / self.state_file
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        state_path.write_text(
-            json.dumps(self.state.model_dump(), indent=2),
-            encoding="utf-8",
+        Args:
+            message: Commit message.
+
+        Returns:
+            Dict with commit info: message, files, hash.
+
+        Raises:
+            ValueError: If nothing is staged.
+        """
+        # Check if there are staged changes
+        status = _run_git(["diff", "--cached", "--quiet"], cwd=self.root, check=False)
+        if status.returncode == 0:
+            raise ValueError("No staged files to commit")
+
+        # Get list of staged files before committing
+        diff_result = _run_git(
+            ["diff", "--cached", "--name-only"],
+            cwd=self.root,
         )
+        staged_files = [f for f in diff_result.stdout.strip().split("\n") if f]
+
+        _run_git(["commit", "-m", message], cwd=self.root)
+
+        # Get the commit hash
+        log_result = _run_git(["rev-parse", "HEAD"], cwd=self.root)
+        commit_hash = log_result.stdout.strip()
+
+        return {
+            "message": message,
+            "staged_files": staged_files,
+            "hash": commit_hash,
+        }
+
+    def get_status(self) -> dict:
+        """Get repository status using git status.
+
+        Returns:
+            Dict with staged, modified, untracked file lists and commit log.
+        """
+        # Staged files
+        staged_result = _run_git(
+            ["diff", "--cached", "--name-only"],
+            cwd=self.root,
+        )
+        staged = [f for f in staged_result.stdout.strip().split("\n") if f]
+
+        # Modified (unstaged)
+        modified_result = _run_git(
+            ["diff", "--name-only"],
+            cwd=self.root,
+        )
+        modified = [f for f in modified_result.stdout.strip().split("\n") if f]
+
+        # Untracked files
+        untracked_result = _run_git(
+            ["ls-files", "--others", "--exclude-standard"],
+            cwd=self.root,
+        )
+        untracked = [f for f in untracked_result.stdout.strip().split("\n") if f]
+
+        # Recent commits
+        log_result = _run_git(
+            ["log", "--oneline", "-20", "--format=%H\t%s\t%aI"],
+            cwd=self.root,
+            check=False,
+        )
+        commits = []
+        if log_result.returncode == 0 and log_result.stdout.strip():
+            for line in log_result.stdout.strip().split("\n"):
+                parts = line.split("\t", 2)
+                if len(parts) == 3:
+                    commits.append({
+                        "hash": parts[0],
+                        "message": parts[1],
+                        "timestamp": parts[2],
+                    })
+
+        return {
+            "staged_files": staged,
+            "modified_files": modified,
+            "untracked_files": untracked,
+            "commits": commits,
+        }
+
+    def get_tracked_files(self) -> List[str]:
+        """Get all tracked files using git ls-files.
+
+        Returns files tracked by git, excluding mdf.yaml and .gitignore.
+        """
+        result = _run_git(["ls-files"], cwd=self.root)
+        all_files = [f for f in result.stdout.strip().split("\n") if f]
+        # Filter out MDF infrastructure files
+        return [f for f in all_files if f not in ("mdf.yaml", ".gitignore")]
+
+    def has_commits(self) -> bool:
+        """Check if the repo has any commits."""
+        result = _run_git(["rev-parse", "HEAD"], cwd=self.root, check=False)
+        return result.returncode == 0
+
+    def tag(self, tag_name: str) -> None:
+        """Create a git tag."""
+        _run_git(["tag", tag_name], cwd=self.root)
+
+    def get_tags(self) -> List[str]:
+        """List all git tags."""
+        result = _run_git(["tag", "-l"], cwd=self.root, check=False)
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+        return result.stdout.strip().split("\n")

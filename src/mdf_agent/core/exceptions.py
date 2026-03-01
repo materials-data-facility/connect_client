@@ -12,4 +12,4 @@ class NotARepositoryError(MDFError):
 
     def __init__(self, path: str = "."):
         self.path = path
-        super().__init__(f"Not an MDF repository (no .mdf directory found)")
+        super().__init__(f"Not an MDF repository (no mdf.yaml found in a git repo)")

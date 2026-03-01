@@ -131,7 +131,7 @@ def init(
 ):
     """Initialize an MDF dataset repository.
 
-    Creates a new mdf.yaml manifest and .mdf/ state directory.
+    Creates a git-backed repository with an mdf.yaml manifest.
     When --title and --author are not provided and running interactively,
     prompts for required metadata.
     """
@@ -188,7 +188,7 @@ def add(
         None, "--discover/--no-discover", help="Auto-discover metadata from files"
     ),
 ):
-    """Stage files for the next commit.
+    """Stage files for the next commit (git add).
 
     Supports glob patterns like *.csv or data/**/*.json.
     Use --discover to automatically extract metadata from PDFs and data files.
@@ -205,14 +205,15 @@ def add(
 def commit(
     message: str = typer.Option(..., "--message", "-m", help="Commit message"),
 ):
-    """Record staged files as a commit.
+    """Record staged files as a git commit.
 
     Creates a local checkpoint that can later be published to MDF Connect.
     """
     agent = MDFAgent.from_repo(".")
     commit_data = agent.commit(message)
     file_count = len(commit_data.get('staged_files', []))
-    console.print(f"[green]Committed:[/green] {commit_data.get('message', '')}")
+    short_hash = commit_data.get('hash', '')[:7]
+    console.print(f"[green]Committed:[/green] {commit_data.get('message', '')} [dim]({short_hash})[/dim]")
     console.print(f"  [dim]{file_count} file{'s' if file_count != 1 else ''} recorded[/dim]")
 
 
@@ -241,27 +242,39 @@ def status(
         state = agent.status()
 
         staged = state.get("staged_files", [])
+        modified = state.get("modified_files", [])
+        untracked = state.get("untracked_files", [])
+
         if staged:
             console.print("\n[bold]Staged files:[/bold]")
             for f in staged:
                 console.print(f"  [green]+[/green] {f}")
-        else:
-            console.print("\n[dim]No files staged[/dim]")
+
+        if modified:
+            console.print("\n[bold]Modified (unstaged):[/bold]")
+            for f in modified:
+                console.print(f"  [yellow]~[/yellow] {f}")
+
+        if untracked:
+            console.print("\n[bold]Untracked files:[/bold]")
+            for f in untracked:
+                console.print(f"  [dim]?[/dim] {f}")
+
+        if not staged and not modified and not untracked:
+            console.print("\n[dim]Working tree clean[/dim]")
 
         commits = state.get("commits", [])
         if commits:
-            console.print(f"\n[bold]Commits ({len(commits)}):[/bold]")
+            console.print(f"\n[bold]Recent commits ({len(commits)}):[/bold]")
             table = Table(show_header=True, header_style="bold")
-            table.add_column("#", style="dim", width=4)
+            table.add_column("Hash", style="dim", width=8)
             table.add_column("Message")
-            table.add_column("Files", justify="right")
             table.add_column("Time", style="dim")
 
-            for i, c in enumerate(commits, 1):
+            for c in commits:
                 table.add_row(
-                    str(i),
+                    c.get("hash", "")[:7],
                     c.get("message", ""),
-                    str(len(c.get("staged_files", []))),
                     c.get("timestamp", "")[:19] if c.get("timestamp") else "",
                 )
             console.print(table)
@@ -766,47 +779,119 @@ def versions(
 
 @app.command()
 def clone(
-    source_id: str = typer.Argument(..., help="Source dataset ID to derive from"),
-    output: str = typer.Option(".", "--output", "-o", help="Output directory"),
-    title: str = typer.Option(..., "--title", "-t", help="New dataset title"),
-    author: List[str] = typer.Option(..., "--author", "-a", help="Author name (repeatable)"),
-    relationship: Optional[str] = typer.Option(
-        None, "--relationship", "-r", help="Relationship type (e.g., filtered_subset)"
-    ),
-    description: Optional[str] = typer.Option(None, "--description", "-d", help="Description of derivation"),
+    source_id: str = typer.Argument(..., help="Source dataset ID to download"),
+    output_dir: str = typer.Argument(".", help="Output directory"),
+    version: Optional[str] = typer.Option(None, "--version", "-v", help="Specific version to clone"),
+    transfer: bool = typer.Option(False, "--transfer", help="Use Globus Transfer (requires GCP)"),
+    derive: bool = typer.Option(False, "--derive", help="Also initialize an MDF repo with derived-from lineage"),
+    service: Optional[str] = typer.Option(None, "--service", "-s", help="Service instance"),
+    token: Optional[str] = typer.Option(None, "--token", help="Globus access token"),
+    dev_user: Optional[str] = typer.Option(None, "--dev-user", help="Dev-mode user id"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
 ):
-    """Create a new dataset derived from an existing MDF dataset.
+    """Download a dataset's files from MDF.
 
-    Sets up the derived_from field to track lineage.
+    Downloads using the fastest available method: zip archive (if available),
+    HTTPS file-by-file, or Globus Transfer (with --transfer flag).
+
+    Examples:
+        mdf clone my_dataset_v1.1
+        mdf clone my_dataset_v1.1 ./local_copy
+        mdf clone my_dataset_v1.1 --transfer
+        mdf clone my_dataset_v1.1 --derive
     """
-    from pathlib import Path
-    from mdf_agent.models.config import DerivedFrom
-    from mdf_agent.core.repository import Repository
+    from rich.progress import Progress, BarColumn, DownloadColumn, TransferSpeedColumn
 
-    root = Path(output)
+    resolved = resolve_service(service)
+    method = "transfer" if transfer else "auto"
 
-    # Create repository with derived_from set
-    repo = Repository.init_repo(
-        root=root,
-        title=title,
-        authors=author,
-    )
+    agent = MDFAgent()
 
-    # Load and update manifest with derived_from
-    manifest = repo.load_manifest()
-    manifest.derived_from = [
-        DerivedFrom(
-            source_id=source_id,
-            relationship=relationship,
-            description=description,
+    # Fetch card first to show dataset info
+    resolved_token = token or os.environ.get("MDF_CONNECT_TOKEN")
+    resolved_dev_user = dev_user or os.environ.get("MDF_DEV_USER_ID")
+
+    console.print(f"\n[bold]Cloning[/bold] [cyan]{source_id}[/cyan]", end="")
+    if version:
+        console.print(f" [dim]v{version}[/dim]", end="")
+    console.print()
+
+    # Build progress callback
+    progress_callback = None
+    progress_ctx = None
+    file_tasks: dict = {}
+
+    if sys.stderr.isatty():
+        progress_ctx = Progress(
+            "[progress.description]{task.description}",
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            console=console,
+            transient=True,
         )
-    ]
-    repo.save_manifest(manifest)
+        progress_ctx.start()
 
-    console.print(f"[green]Created derived dataset at[/green] [bold]{output}[/bold]")
-    console.print(f"  [dim]Derived from:[/dim] [cyan]{source_id}[/cyan]")
-    if relationship:
-        console.print(f"  [dim]Relationship:[/dim] {relationship}")
+        def _progress_cb(filename: str, bytes_sent: int, total_bytes: int) -> None:
+            if filename not in file_tasks:
+                file_tasks[filename] = progress_ctx.add_task(filename, total=total_bytes)
+            progress_ctx.update(file_tasks[filename], completed=bytes_sent)
+
+        progress_callback = _progress_cb
+
+    try:
+        result = agent.clone(
+            source_id=source_id,
+            output_dir=output_dir,
+            version=version,
+            method=method,
+            progress_callback=progress_callback,
+            api_url=api_url,
+            token=resolved_token,
+            service_instance=resolved,
+            dev_user_id=resolved_dev_user,
+        )
+    except RuntimeError as exc:
+        if progress_ctx is not None:
+            progress_ctx.stop()
+        console.print(f"\n[red]Error:[/red] {exc}")
+        raise typer.Exit(code=1)
+    finally:
+        if progress_ctx is not None:
+            progress_ctx.stop()
+
+    if not result.get("success"):
+        console.print(f"\n[red]Clone failed:[/red] {result.get('error', 'Unknown error')}")
+        raise typer.Exit(code=1)
+
+    console.print(f"\n[bold green]Clone complete![/bold green]")
+    if result.get("title"):
+        console.print(f"  [dim]Title:[/dim] {result['title']}")
+    console.print(f"  [dim]Method:[/dim] {result['method']}")
+    if result.get("files_count"):
+        console.print(f"  [dim]Files:[/dim] {result['files_count']}")
+    console.print(f"  [dim]Path:[/dim] {result['path']}")
+    if result.get("task_id"):
+        console.print(f"  [dim]Transfer task:[/dim] {result['task_id']}")
+        console.print(f"  [dim]Monitor:[/dim] {result['monitor_url']}")
+
+    # Optionally initialize a derived MDF repo
+    if derive:
+        from pathlib import Path as _Path
+        from mdf_agent.models.config import DerivedFrom
+
+        derive_root = _Path(output_dir).resolve()
+        derive_agent = MDFAgent.init(
+            path=str(derive_root),
+            title=f"Derived from {source_id}",
+            authors=["Unknown"],
+        )
+        derive_agent.manifest.derived_from = [
+            DerivedFrom(source_id=source_id, relationship="derived")
+        ]
+        derive_agent.save_manifest()
+        console.print(f"\n  [green]Initialized git-backed MDF repo with derived-from lineage[/green]")
+    console.print()
 
 
 @app.command()

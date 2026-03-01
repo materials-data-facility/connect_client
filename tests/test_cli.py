@@ -18,7 +18,7 @@ class TestInitCommand:
     """Tests for 'mdf init' command."""
 
     def test_init_creates_repository(self):
-        """mdf init creates .mdf/ and mdf.yaml."""
+        """mdf init creates git repo and mdf.yaml."""
         with TemporaryDirectory() as tmpdir:
             result = runner.invoke(
                 app,
@@ -26,7 +26,7 @@ class TestInitCommand:
             )
             assert result.exit_code == 0
             assert "Initialized" in result.stdout
-            assert (Path(tmpdir) / ".mdf").is_dir()
+            assert (Path(tmpdir) / ".git").is_dir()
             assert (Path(tmpdir) / "mdf.yaml").is_file()
 
     def test_init_with_multiple_authors(self):
@@ -194,13 +194,13 @@ class TestValidateCommand:
 
     def test_validate_missing_title_fails(self):
         """mdf validate fails when title is missing."""
+        import subprocess
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            (root / ".mdf").mkdir()
-            (root / ".mdf" / "state.json").write_text(
-                json.dumps({"version": "1", "root": str(root), "staged_files": [], "commits": []})
-            )
+            subprocess.run(["git", "init"], cwd=str(root), capture_output=True, check=True)
             (root / "mdf.yaml").write_text("authors:\n  - Jane Doe\n")
+            subprocess.run(["git", "add", "mdf.yaml"], cwd=str(root), capture_output=True, check=True)
+            subprocess.run(["git", "commit", "-m", "init"], cwd=str(root), capture_output=True, check=True)
 
             # Validate should fail
 
@@ -233,18 +233,11 @@ class TestCloneCommand:
     """Tests for 'mdf clone' command."""
 
     def test_clone_creates_manifest(self):
-        """mdf clone creates derived dataset."""
-        with TemporaryDirectory() as tmpdir:
-            result = runner.invoke(
-                app,
-                [
-                    "clone", "source-dataset-v1",
-                    "--output", tmpdir,
-                    "--title", "Derived Dataset",
-                    "--author", "Jane Doe",
-                ],
-            )
-            # Clone creates a new manifest with derived_from set
+        """mdf clone --help shows download options."""
+        result = runner.invoke(app, ["clone", "--help"])
+        assert result.exit_code == 0
+        assert "--transfer" in result.stdout
+        assert "--derive" in result.stdout
 
 
 class TestCLIHelp:

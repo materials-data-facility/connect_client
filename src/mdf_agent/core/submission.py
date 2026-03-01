@@ -131,22 +131,18 @@ def build_submission(
 
     data_sources = resolve_data_sources(manifest.data_sources, root)
 
-    # Auto-populate data_sources from committed files if empty
+    # Auto-populate data_sources from git-tracked files if empty
     if not data_sources and root:
-        mdf_dir = root / ".mdf"
-        if mdf_dir.exists():
-            from mdf_agent.core.repository import Repository
-            try:
-                repo = Repository.load(root)
-                committed_files: list[str] = []
-                for commit in repo.state.commits:
-                    committed_files.extend(commit.staged_files)
-                if committed_files:
-                    data_sources = [
-                        str((root / f).resolve()) for f in set(committed_files)
-                    ]
-            except Exception:
-                pass
+        from mdf_agent.core.repository import Repository
+        try:
+            repo = Repository.load(root)
+            tracked = repo.get_tracked_files()
+            if tracked:
+                data_sources = [
+                    str((root / f).resolve()) for f in tracked
+                ]
+        except Exception:
+            pass
 
     submission = Submission(
         title=metadata.get("title"),

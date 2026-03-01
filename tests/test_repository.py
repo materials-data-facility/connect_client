@@ -1,20 +1,26 @@
-"""Tests for MDF Agent Repository operations."""
+"""Tests for MDF Agent git-backed Repository operations."""
 
-import json
+import subprocess
 import pytest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from mdf_agent.core.exceptions import NotARepositoryError
 from mdf_agent.core.repository import Repository
-from mdf_agent.models.state import Commit, RepositoryState
+
+
+def _git(args, cwd):
+    """Helper to run git commands in tests."""
+    return subprocess.run(
+        ["git"] + args, cwd=str(cwd), capture_output=True, text=True, check=True,
+    )
 
 
 class TestRepositoryInit:
     """Tests for repository initialization."""
 
     def test_init_creates_structure(self):
-        """init_repo creates .mdf/ and mdf.yaml."""
+        """init_repo creates .git/, .gitignore, and mdf.yaml."""
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             repo = Repository.init_repo(
@@ -23,9 +29,9 @@ class TestRepositoryInit:
                 authors=["Jane Doe"],
             )
 
-            assert (root / ".mdf").is_dir()
-            assert (root / ".mdf" / "state.json").is_file()
+            assert (root / ".git").is_dir()
             assert (root / "mdf.yaml").is_file()
+            assert (root / ".gitignore").is_file()
 
     def test_init_creates_manifest_with_metadata(self):
         """init_repo creates mdf.yaml with correct content."""
@@ -47,35 +53,31 @@ class TestRepositoryInit:
             assert manifest.publisher == "Test Publisher"
             assert manifest.publication_year == 2025
 
-    def test_init_creates_state_json(self):
-        """init_repo creates valid state.json."""
+    def test_init_creates_git_commit(self):
+        """init_repo creates an initial git commit."""
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            repo = Repository.init_repo(
+            Repository.init_repo(
                 root=root,
                 title="Test Dataset",
                 authors=["Jane Doe"],
             )
 
-            state_path = root / ".mdf" / "state.json"
-            state_data = json.loads(state_path.read_text())
-            assert state_data["version"] == "1"
-            assert state_data["root"] == str(root)
-            assert state_data["staged_files"] == []
-            assert state_data["commits"] == []
+            result = _git(["log", "--oneline"], cwd=root)
+            assert "Initialize MDF dataset" in result.stdout
 
     def test_init_nested_directory(self):
         """init_repo creates nested directories if needed."""
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / "nested" / "path" / "dataset"
-            repo = Repository.init_repo(
+            Repository.init_repo(
                 root=root,
                 title="Nested Dataset",
                 authors=["Jane Doe"],
             )
 
             assert root.exists()
-            assert (root / ".mdf").is_dir()
+            assert (root / ".git").is_dir()
             assert (root / "mdf.yaml").is_file()
 
     def test_init_does_not_overwrite_manifest(self):
@@ -99,6 +101,36 @@ class TestRepositoryInit:
             assert manifest.title == "Existing Dataset"
             assert manifest.authors == ["Existing Author"]
 
+    def test_init_existing_git_repo(self):
+        """init_repo works in an existing git repo without re-initializing."""
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _git(["init"], cwd=root)
+            # Create an existing commit
+            (root / "README.md").write_text("hello")
+            _git(["add", "README.md"], cwd=root)
+            _git(["commit", "-m", "Initial commit"], cwd=root)
+
+            repo = Repository.init_repo(
+                root=root,
+                title="Test Dataset",
+                authors=["Jane Doe"],
+            )
+
+            # Should have both commits
+            result = _git(["log", "--oneline"], cwd=root)
+            assert "Initial commit" in result.stdout
+            assert "Initialize MDF dataset" in result.stdout
+
+    def test_init_gitignore_contains_mdf(self):
+        """init_repo creates .gitignore that excludes .mdf/."""
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            Repository.init_repo(root=root, title="Test", authors=["Jane"])
+
+            gitignore = (root / ".gitignore").read_text()
+            assert ".mdf/" in gitignore
+
 
 class TestRepositoryLoad:
     """Tests for loading existing repositories."""
@@ -114,37 +146,28 @@ class TestRepositoryLoad:
             # Load it
             repo = Repository.load(root)
             assert repo.root == root
-            assert repo.state.staged_files == []
 
     def test_load_nonexistent_raises(self):
-        """load() raises NotARepositoryError if .mdf/state.json doesn't exist."""
+        """load() raises NotARepositoryError if no mdf.yaml or not a git repo."""
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             with pytest.raises(NotARepositoryError):
                 Repository.load(root)
 
-    def test_load_preserves_state(self):
-        """load() preserves staged files and commits."""
+    def test_load_no_git_raises(self):
+        """load() raises NotARepositoryError if mdf.yaml exists but no git repo."""
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-
-            # Create repo with some files
-            (root / "data.csv").write_text("a,b,c")
-            repo = Repository.init_repo(root, title="Test", authors=["Jane"])
-            repo.stage(["data.csv"])
-            repo.commit("Add data")
-
-            # Load and verify
-            repo2 = Repository.load(root)
-            assert len(repo2.state.commits) == 1
-            assert repo2.state.commits[0].message == "Add data"
+            (root / "mdf.yaml").write_text("title: Test\nauthors:\n  - Jane\n")
+            with pytest.raises(NotARepositoryError):
+                Repository.load(root)
 
 
 class TestRepositoryStage:
     """Tests for staging files."""
 
     def test_stage_single_file(self):
-        """stage() adds a single file."""
+        """stage() adds a single file to git staging area."""
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             (root / "data.csv").write_text("a,b,c")
@@ -153,7 +176,9 @@ class TestRepositoryStage:
             staged = repo.stage(["data.csv"])
 
             assert staged == ["data.csv"]
-            assert "data.csv" in repo.state.staged_files
+            # Verify git sees it as staged
+            result = _git(["diff", "--cached", "--name-only"], cwd=root)
+            assert "data.csv" in result.stdout
 
     def test_stage_multiple_files(self):
         """stage() adds multiple files."""
@@ -166,8 +191,6 @@ class TestRepositoryStage:
             staged = repo.stage(["data1.csv", "data2.csv"])
 
             assert len(staged) == 2
-            assert "data1.csv" in repo.state.staged_files
-            assert "data2.csv" in repo.state.staged_files
 
     def test_stage_glob_pattern(self):
         """stage() supports glob patterns."""
@@ -205,60 +228,27 @@ class TestRepositoryStage:
             with pytest.raises(FileNotFoundError, match="No files matched"):
                 repo.stage(["nonexistent.csv"])
 
-    def test_stage_deduplicates(self):
-        """stage() doesn't duplicate already-staged files."""
-        with TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "data.csv").write_text("a,b,c")
-
-            repo = Repository.init_repo(root, title="Test", authors=["Jane"])
-            repo.stage(["data.csv"])
-            repo.stage(["data.csv"])  # Stage again
-
-            assert repo.state.staged_files.count("data.csv") == 1
-
-    def test_stage_persists_to_disk(self):
-        """stage() saves state to disk."""
-        with TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "data.csv").write_text("a,b,c")
-
-            repo = Repository.init_repo(root, title="Test", authors=["Jane"])
-            repo.stage(["data.csv"])
-
-            # Read state from disk
-            state_data = json.loads((root / ".mdf" / "state.json").read_text())
-            assert "data.csv" in state_data["staged_files"]
-
 
 class TestRepositoryCommit:
     """Tests for committing staged files."""
 
-    def test_commit_creates_record(self):
-        """commit() creates a commit record."""
+    def test_commit_creates_git_commit(self):
+        """commit() creates a real git commit."""
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             (root / "data.csv").write_text("a,b,c")
 
             repo = Repository.init_repo(root, title="Test", authors=["Jane"])
             repo.stage(["data.csv"])
-            commit = repo.commit("Add data file")
+            commit_data = repo.commit("Add data file")
 
-            assert commit.message == "Add data file"
-            assert "data.csv" in commit.staged_files
-            assert len(repo.state.commits) == 1
+            assert commit_data["message"] == "Add data file"
+            assert "data.csv" in commit_data["staged_files"]
+            assert len(commit_data["hash"]) == 40  # full SHA
 
-    def test_commit_clears_staged(self):
-        """commit() clears staged files."""
-        with TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "data.csv").write_text("a,b,c")
-
-            repo = Repository.init_repo(root, title="Test", authors=["Jane"])
-            repo.stage(["data.csv"])
-            repo.commit("Add data")
-
-            assert repo.state.staged_files == []
+            # Verify in git log
+            result = _git(["log", "--oneline"], cwd=root)
+            assert "Add data file" in result.stdout
 
     def test_commit_no_staged_raises(self):
         """commit() raises if nothing is staged."""
@@ -269,21 +259,8 @@ class TestRepositoryCommit:
             with pytest.raises(ValueError, match="No staged files"):
                 repo.commit("Empty commit")
 
-    def test_commit_has_timestamp(self):
-        """commit() includes timestamp."""
-        with TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "data.csv").write_text("a,b,c")
-
-            repo = Repository.init_repo(root, title="Test", authors=["Jane"])
-            repo.stage(["data.csv"])
-            commit = repo.commit("Add data")
-
-            assert commit.timestamp is not None
-            assert "T" in commit.timestamp  # ISO format
-
     def test_multiple_commits(self):
-        """Multiple commits are recorded in order."""
+        """Multiple commits are recorded in git log."""
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             (root / "data1.csv").write_text("a,b,c")
@@ -297,12 +274,50 @@ class TestRepositoryCommit:
             repo.stage(["data2.csv"])
             repo.commit("Second commit")
 
-            assert len(repo.state.commits) == 2
-            assert repo.state.commits[0].message == "First commit"
-            assert repo.state.commits[1].message == "Second commit"
+            result = _git(["log", "--oneline"], cwd=root)
+            assert "First commit" in result.stdout
+            assert "Second commit" in result.stdout
 
-    def test_commit_persists_to_disk(self):
-        """commit() saves state to disk."""
+
+class TestRepositoryStatus:
+    """Tests for repository status."""
+
+    def test_get_status_clean(self):
+        """get_status() shows clean state after commit."""
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            repo = Repository.init_repo(root, title="Test", authors=["Jane"])
+
+            status = repo.get_status()
+            assert status["staged_files"] == []
+            assert status["modified_files"] == []
+            assert status["untracked_files"] == []
+            assert len(status["commits"]) >= 1
+
+    def test_get_status_with_staged(self):
+        """get_status() shows staged files."""
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "data.csv").write_text("a,b,c")
+
+            repo = Repository.init_repo(root, title="Test", authors=["Jane"])
+            repo.stage(["data.csv"])
+
+            status = repo.get_status()
+            assert "data.csv" in status["staged_files"]
+
+    def test_get_status_with_untracked(self):
+        """get_status() shows untracked files."""
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            repo = Repository.init_repo(root, title="Test", authors=["Jane"])
+            (root / "new_file.csv").write_text("data")
+
+            status = repo.get_status()
+            assert "new_file.csv" in status["untracked_files"]
+
+    def test_get_status_with_modified(self):
+        """get_status() shows modified tracked files."""
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             (root / "data.csv").write_text("a,b,c")
@@ -311,10 +326,51 @@ class TestRepositoryCommit:
             repo.stage(["data.csv"])
             repo.commit("Add data")
 
-            # Read state from disk
-            state_data = json.loads((root / ".mdf" / "state.json").read_text())
-            assert len(state_data["commits"]) == 1
-            assert state_data["commits"][0]["message"] == "Add data"
+            # Modify the file
+            (root / "data.csv").write_text("a,b,c,d")
+
+            status = repo.get_status()
+            assert "data.csv" in status["modified_files"]
+
+
+class TestRepositoryTrackedFiles:
+    """Tests for get_tracked_files."""
+
+    def test_tracked_excludes_infrastructure(self):
+        """get_tracked_files() excludes mdf.yaml and .gitignore."""
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "data.csv").write_text("a,b,c")
+
+            repo = Repository.init_repo(root, title="Test", authors=["Jane"])
+            repo.stage(["data.csv"])
+            repo.commit("Add data")
+
+            tracked = repo.get_tracked_files()
+            assert "data.csv" in tracked
+            assert "mdf.yaml" not in tracked
+            assert ".gitignore" not in tracked
+
+
+class TestRepositoryTags:
+    """Tests for git tag operations."""
+
+    def test_tag_and_list(self):
+        """tag() creates tags, get_tags() lists them."""
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            repo = Repository.init_repo(root, title="Test", authors=["Jane"])
+
+            repo.tag("mdf/v1.0")
+            tags = repo.get_tags()
+            assert "mdf/v1.0" in tags
+
+    def test_has_commits(self):
+        """has_commits() returns True after init."""
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            repo = Repository.init_repo(root, title="Test", authors=["Jane"])
+            assert repo.has_commits()
 
 
 class TestRepositoryManifest:
@@ -345,45 +401,3 @@ class TestRepositoryManifest:
             manifest2 = repo.load_manifest()
             assert manifest2.title == "Updated Title"
             assert manifest2.description == "Added description"
-
-
-class TestStateModels:
-    """Tests for state Pydantic models."""
-
-    def test_commit_defaults(self):
-        """Commit has sensible defaults."""
-        commit = Commit(message="Test")
-        assert commit.message == "Test"
-        assert commit.timestamp is not None
-        assert commit.staged_files == []
-
-    def test_commit_with_files(self):
-        """Commit stores staged files."""
-        commit = Commit(message="Test", staged_files=["a.csv", "b.csv"])
-        assert commit.staged_files == ["a.csv", "b.csv"]
-
-    def test_repository_state_defaults(self):
-        """RepositoryState has sensible defaults."""
-        state = RepositoryState(root="/path/to/repo")
-        assert state.version == "1"
-        assert state.root == "/path/to/repo"
-        assert state.staged_files == []
-        assert state.commits == []
-
-    def test_repository_state_serialization(self):
-        """RepositoryState can serialize to/from JSON."""
-        state = RepositoryState(
-            root="/path/to/repo",
-            staged_files=["a.csv"],
-            commits=[Commit(message="Test", staged_files=["a.csv"])],
-        )
-
-        # Serialize
-        data = state.model_dump()
-        assert data["root"] == "/path/to/repo"
-        assert data["staged_files"] == ["a.csv"]
-
-        # Deserialize
-        state2 = RepositoryState.model_validate(data)
-        assert state2.root == "/path/to/repo"
-        assert len(state2.commits) == 1
