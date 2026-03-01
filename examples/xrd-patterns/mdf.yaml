@@ -1,0 +1,10 @@
+title: XRD Patterns of Iron Oxide Nanoparticles
+authors:
+- Ben Johnson
+- Sarah Williams
+description: X-ray diffraction patterns for Fe2O3 and Fe3O4 nanoparticles
+data_sources: []
+
+data_sources:
+  - "./sample_001.csv"
+  - "./sample_002.csv"

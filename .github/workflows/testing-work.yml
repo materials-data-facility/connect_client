@@ -3,37 +3,65 @@ name: Package Testing
 on:
   pull_request:
     branches:
-      - dev
       - master
-      - update-test
+      - mdf-agent
 
 jobs:
-
-  build:
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       matrix:
-        python-version: [3.7, 3.8, 3.9]
+        python-version: ['3.10', '3.11', '3.12']
 
-    env:
-      CLIENT_ID: ${{ secrets.CLIENT_ID }}
-      CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
-    name: build
+    name: Client — Python ${{ matrix.python-version }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install -r test_requirements.txt
+          pip install -e ".[extractors]"
+          pip install pytest
 
       - name: Test with pytest
         run: |
-          pytest -s tests/test_connect_client.py
+          pytest tests/ -v --ignore=tests/test_connect_client.py
+
+  backend-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+
+    name: Backend — Python ${{ matrix.python-version }}
+    env:
+      STORE_BACKEND: sqlite
+      AUTH_MODE: dev
+      STORAGE_BACKEND: local
+      USE_MOCK_DATACITE: "true"
+      USE_MOCK_SEARCH: "true"
+      ASYNC_DISPATCH_MODE: inline
+      ALLOW_ALL_CURATORS: "true"
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r cs/aws/v2/requirements-test.txt
+
+      - name: Test backend with pytest
+        working-directory: cs/aws
+        run: |
+          pytest v2/test_v2_*.py -v

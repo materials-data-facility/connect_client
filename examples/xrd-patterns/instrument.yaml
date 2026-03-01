@@ -1,0 +1,31 @@
+instrument:
+  name: "Rigaku SmartLab"
+  type: "X-ray Diffractometer"
+  location: "MIT Materials Characterization Lab"
+
+source:
+  type: "Cu K-alpha"
+  wavelength_A: 1.5406
+  voltage_kV: 40
+  current_mA: 30
+
+detector:
+  type: "D/teX Ultra 250"
+  mode: "1D"
+
+scan_parameters:
+  start_2theta_deg: 20
+  end_2theta_deg: 90
+  step_size_deg: 0.02
+  scan_speed_deg_min: 2.0
+
+samples:
+  - id: "sample_001"
+    composition: "Fe2O3"
+    preparation: "Ball milled 4 hours"
+    temperature_C: 25
+
+  - id: "sample_002"
+    composition: "Fe3O4"
+    preparation: "Hydrothermal synthesis"
+    temperature_C: 25
