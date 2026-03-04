@@ -729,8 +729,8 @@ def versions(
 
 @app.command()
 def clone(
-    source_id: str = typer.Argument(..., help="Source dataset ID to download"),
-    output_dir: str = typer.Argument(".", help="Output directory"),
+    source_id: str = typer.Argument(..., help="Source dataset ID or DOI to download"),
+    output_dir: Optional[str] = typer.Argument(None, help="Output directory (default: ./{source_id})"),
     version: Optional[str] = typer.Option(None, "--version", "-v", help="Specific version to clone"),
     transfer: bool = typer.Option(False, "--transfer", help="Use Globus Transfer (requires GCP)"),
     derive: bool = typer.Option(False, "--derive", help="Create mdf.yaml with derived-from lineage"),
@@ -766,6 +766,11 @@ def clone(
 
     resolved_token = token or os.environ.get("MDF_CONNECT_TOKEN")
     resolved_dev_user = dev_user or os.environ.get("MDF_DEV_USER_ID")
+
+    # Default output dir: ./{source_id} — use the last path component of a DOI
+    if output_dir is None:
+        dir_name = source_id.rstrip("/").split("/")[-1]
+        output_dir = dir_name
 
     console.print(f"\n[bold]Cloning[/bold] [cyan]{source_id}[/cyan]", end="")
     if version:
@@ -818,10 +823,13 @@ def clone(
                 file_progress.update(file_tasks[rel_path], completed=bytes_sent)
 
         def on_file_done_cb(rel_path: str, _size: int) -> None:
+            filename = Path(rel_path).name
             with file_lock:
                 tid = file_tasks.pop(rel_path, None)
                 if tid is not None:
-                    file_progress.remove_task(tid)
+                    file_progress.update(
+                        tid, description=f"[dim green]✓ {filename}[/dim green]"
+                    )
             if overall_task_id is not None:
                 overall_progress.advance(overall_task_id, 1)
                 task = overall_progress.tasks[overall_task_id]
@@ -830,6 +838,16 @@ def clone(
                         overall_task_id,
                         description=f"[bold green]{source_id}[/bold green]",
                     )
+            # Remove the ✓ row after a short delay so it's visible for at least a few frames
+            if tid is not None:
+                def _remove(task_id=tid):
+                    import time as _time
+                    _time.sleep(0.4)
+                    try:
+                        file_progress.remove_task(task_id)
+                    except Exception:
+                        pass
+                threading.Thread(target=_remove, daemon=True).start()
 
         live_ctx = Live(
             Group(overall_progress, file_progress),
