@@ -797,13 +797,15 @@ def clone(
         )
 
         overall_task_id = None
+        total_file_count = 0
         file_tasks: dict = {}
         file_lock = threading.Lock()
 
         def on_files_resolved_cb(count: int) -> None:
-            nonlocal overall_task_id
+            nonlocal overall_task_id, total_file_count
+            total_file_count = count
             overall_task_id = overall_progress.add_task(
-                f"[cyan]{source_id}[/cyan]  ", total=count
+                f"[cyan]{source_id}[/cyan]", total=count
             )
 
         def progress_callback(rel_path: str, bytes_sent: int, total_bytes: int) -> None:
@@ -811,7 +813,7 @@ def clone(
             with file_lock:
                 if rel_path not in file_tasks:
                     file_tasks[rel_path] = file_progress.add_task(
-                        f"{filename:<50}", total=max(total_bytes, 1)
+                        filename, total=max(total_bytes, 1)
                     )
                 file_progress.update(file_tasks[rel_path], completed=bytes_sent)
 
@@ -822,6 +824,12 @@ def clone(
                     file_progress.remove_task(tid)
             if overall_task_id is not None:
                 overall_progress.advance(overall_task_id, 1)
+                task = overall_progress.tasks[overall_task_id]
+                if task.completed >= task.total:
+                    overall_progress.update(
+                        overall_task_id,
+                        description=f"[bold green]{source_id}[/bold green]",
+                    )
 
         live_ctx = Live(
             Group(overall_progress, file_progress),

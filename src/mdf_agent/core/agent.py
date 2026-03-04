@@ -25,6 +25,7 @@ import sys
 import tempfile
 import zipfile
 from pathlib import Path
+import re
 import threading
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 
@@ -41,6 +42,47 @@ _NCSA_MDF_COLLECTION_UUID = "82f1b5c6-6e9b-11e5-ba47-22000b92c6ec"
 
 
 _UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024  # 8 MB
+
+# Matches bare DOIs (10.xxx/...), doi: prefixed, and https://doi.org/ URLs
+_DOI_RE = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/|doi:)?(10\.\d{4,}/\S+)", re.IGNORECASE)
+
+
+def _extract_doi(s: str) -> Optional[str]:
+    """Return the normalized DOI (10.xxx/...) if s looks like a DOI, else None."""
+    m = _DOI_RE.match(s.strip())
+    return m.group(1).rstrip("/") if m else None
+
+
+def _resolve_doi(client: Any, doi: str) -> Optional[str]:
+    """Resolve a DOI to a source_id by searching the backend.
+
+    Tries three strategies in order:
+      1. Search the backend for the DOI string and match result.doi exactly.
+      2. Try the DOI suffix as a bare source_id (MDF DOIs are often 10.18126/{source_id}).
+      3. Return None — caller falls back to treating the original input as a source_id.
+    """
+    # Strategy 1: search and match on doi field
+    try:
+        resp = client.search(doi, search_type="datasets", limit=10)
+        doi_lower = doi.lower().rstrip("/")
+        for result in resp.get("results", []):
+            result_doi = (result.get("doi") or "").lower().rstrip("/")
+            if result_doi == doi_lower:
+                return result.get("source_id")
+    except Exception:
+        pass
+
+    # Strategy 2: DOI suffix often IS the source_id for MDF datasets
+    suffix = doi.split("/", 1)[-1] if "/" in doi else None
+    if suffix:
+        try:
+            card = client.get_card(suffix)
+            if card.get("card", {}).get("source_id") or card.get("source_id"):
+                return suffix
+        except Exception:
+            pass
+
+    return None
 _ZIP_MAX_TOTAL_BYTES = 12 * 1024 * 1024 * 1024  # 12 GB
 _INSECURE_SSL_WARNING_EMITTED = False
 
@@ -949,6 +991,13 @@ class MDFAgent:
             dev_user_id=dev_user_id,
         )
         try:
+            # Resolve DOI → source_id if the identifier looks like a DOI
+            doi = _extract_doi(source_id)
+            if doi:
+                resolved_id = _resolve_doi(client, doi)
+                if resolved_id:
+                    source_id = resolved_id
+
             card_resp = client.get_card(source_id, version=version)
             card = card_resp.get("card", card_resp)
             if not card.get("source_id"):
