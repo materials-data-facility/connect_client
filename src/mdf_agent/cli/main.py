@@ -818,10 +818,16 @@ def clone(
                 file_progress.update(file_tasks[rel_path], completed=bytes_sent)
 
         def on_file_done_cb(rel_path: str, _size: int) -> None:
+            filename = Path(rel_path).name
             with file_lock:
                 tid = file_tasks.pop(rel_path, None)
                 if tid is not None:
-                    file_progress.remove_task(tid)
+                    # Mark done with ✓ — stays visible until live_ctx.stop() clears everything
+                    file_progress.update(
+                        tid,
+                        description=f"[green]✓[/green] {filename}",
+                        completed=file_progress.tasks[tid].total,
+                    )
             if overall_task_id is not None:
                 overall_progress.advance(overall_task_id, 1)
                 task = overall_progress.tasks[overall_task_id]
