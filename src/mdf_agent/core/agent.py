@@ -972,11 +972,22 @@ class MDFAgent:
             else:
                 use_zip = bool(download_url)
 
-            if use_zip and download_url:
-                return self._clone_via_zip(
-                    download_url, data_token, out, card,
-                    progress_callback=progress_callback,
-                )
+            # A download_url ending with "/" is a directory listing, not a zip.
+            # Skip straight to file-by-file for those.
+            is_directory_url = download_url and download_url.rstrip("?").endswith("/")
+
+            if use_zip and download_url and not is_directory_url:
+                try:
+                    return self._clone_via_zip(
+                        download_url, data_token, out, card,
+                        progress_callback=progress_callback,
+                    )
+                except zipfile.BadZipFile:
+                    print(
+                        "Note: download_url did not return a zip archive — "
+                        "falling back to file-by-file HTTPS download.",
+                        file=sys.stderr,
+                    )
 
             # HTTPS file-by-file
             if not data_sources:
@@ -989,11 +1000,18 @@ class MDFAgent:
                     "error": "No HTTPS-downloadable files found. Try --transfer for cross-endpoint downloads.",
                 }
 
+            total_files = len(files)
             downloaded = 0
             for https_url, rel_path in files:
                 dest = out / rel_path
-                _download_https_file(https_url, dest, data_token, progress_callback=progress_callback)
                 downloaded += 1
+                file_label = f"[{downloaded}/{total_files}] {dest.name}"
+
+                def _cb(fname: str, sent: int, total: int, label: str = file_label) -> None:
+                    if progress_callback:
+                        progress_callback(label, sent, total)
+
+                _download_https_file(https_url, dest, data_token, progress_callback=_cb)
 
             return {
                 "success": True,
