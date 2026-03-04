@@ -25,7 +25,8 @@ import sys
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Any, Callable, Dict, List, NamedTuple, Optional
+import threading
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 
 from mdf_agent.core.manifest import load_manifest, save_manifest, init_manifest
 from mdf_agent.core.submission import build_submission
@@ -916,7 +917,10 @@ class MDFAgent:
         output_dir: str = ".",
         version: Optional[str] = None,
         method: str = "auto",
+        workers: int = 5,
         progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        on_files_resolved: Optional[Callable[[int], None]] = None,
+        on_file_done: Optional[Callable[[str, int], None]] = None,
         api_url: Optional[str] = None,
         token: Optional[str] = None,
         service_instance: str = "prod",
@@ -989,7 +993,7 @@ class MDFAgent:
                         file=sys.stderr,
                     )
 
-            # HTTPS file-by-file
+            # HTTPS file-by-file (parallel)
             if not data_sources:
                 return {"success": False, "error": "No data sources found for this dataset"}
 
@@ -1000,27 +1004,13 @@ class MDFAgent:
                     "error": "No HTTPS-downloadable files found. Try --transfer for cross-endpoint downloads.",
                 }
 
-            total_files = len(files)
-            downloaded = 0
-            for https_url, rel_path in files:
-                dest = out / rel_path
-                downloaded += 1
-                file_label = f"[{downloaded}/{total_files}] {dest.name}"
-
-                def _cb(fname: str, sent: int, total: int, label: str = file_label) -> None:
-                    if progress_callback:
-                        progress_callback(label, sent, total)
-
-                _download_https_file(https_url, dest, data_token, progress_callback=_cb)
-
-            return {
-                "success": True,
-                "method": "https",
-                "files_count": downloaded,
-                "path": str(out),
-                "source_id": source_id,
-                "title": card.get("title"),
-            }
+            return self._clone_via_https(
+                files, data_token, out, card,
+                workers=workers,
+                progress_callback=progress_callback,
+                on_files_resolved=on_files_resolved,
+                on_file_done=on_file_done,
+            )
         finally:
             client.close()
 
@@ -1052,6 +1042,64 @@ class MDFAgent:
             "success": True,
             "method": "zip",
             "files_count": file_count,
+            "path": str(out),
+            "source_id": card.get("source_id"),
+            "title": card.get("title"),
+        }
+
+    def _clone_via_https(
+        self,
+        files: List[Tuple[str, str]],
+        data_token: str,
+        out: Path,
+        card: Dict[str, Any],
+        workers: int = 5,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        on_files_resolved: Optional[Callable[[int], None]] = None,
+        on_file_done: Optional[Callable[[str, int], None]] = None,
+    ) -> Dict[str, Any]:
+        """Download files in parallel via HTTPS GET."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        if on_files_resolved:
+            on_files_resolved(len(files))
+
+        errors: List[str] = []
+        downloaded = 0
+        lock = threading.Lock()
+
+        def _download_one(item: Tuple[str, str]) -> None:
+            https_url, rel_path = item
+            dest = out / rel_path
+
+            def _cb(fname: str, sent: int, total: int) -> None:
+                if progress_callback:
+                    progress_callback(rel_path, sent, total)
+
+            _download_https_file(https_url, dest, data_token, progress_callback=_cb)
+
+            size = dest.stat().st_size if dest.exists() else 0
+            if on_file_done:
+                on_file_done(rel_path, size)
+            with lock:
+                nonlocal downloaded
+                downloaded += 1
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(_download_one, f): f for f in files}
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as exc:
+                    _, rel_path = futures[future]
+                    with lock:
+                        errors.append(f"{rel_path}: {exc}")
+
+        return {
+            "success": len(errors) == 0,
+            "method": "https",
+            "files_count": downloaded,
+            "errors": errors or None,
             "path": str(out),
             "source_id": card.get("source_id"),
             "title": card.get("title"),
