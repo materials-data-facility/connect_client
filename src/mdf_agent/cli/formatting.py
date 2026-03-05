@@ -6,27 +6,49 @@ and error interpretation across all CLI commands.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import json
+import os
+import sys
+from contextlib import contextmanager
+from typing import Any, Callable, Dict, Optional
 
 from rich.console import Console
 
-console = Console()
+console = Console(no_color=bool(os.environ.get("NO_COLOR")))
 
 _STATUS_STYLES = {
-    "pending_curation": "[yellow]pending_curation[/yellow]",
-    "pending": "[yellow]pending[/yellow]",
-    "approved": "[blue]approved[/blue]",
-    "published": "[green]published[/green]",
-    "rejected": "[red]rejected[/red]",
-    "failed": "[red]failed[/red]",
-    "active": "[cyan]active[/cyan]",
-    "closed": "[dim]closed[/dim]",
+    "published":        "[green]* published[/green]",
+    "pending_curation": "[yellow]~ pending_curation[/yellow]",
+    "pending":          "[yellow]~ pending[/yellow]",
+    "approved":         "[blue]> approved[/blue]",
+    "rejected":         "[red]x rejected[/red]",
+    "failed":           "[red]! failed[/red]",
+    "active":           "[cyan]> active[/cyan]",
+    "closed":           "[dim]- closed[/dim]",
 }
 
 
 def format_status_badge(status: str) -> str:
     """Return Rich-markup colored string for a submission status."""
     return _STATUS_STYLES.get(status, f"[dim]{status}[/dim]")
+
+
+@contextmanager
+def api_spinner(message: str = "Loading..."):
+    """Show a Rich spinner while waiting for an API call. Auto-suppresses in pipes/non-TTY."""
+    if sys.stderr.isatty() and not os.environ.get("NO_COLOR"):
+        with console.status(f"[dim]{message}[/dim]", spinner="dots"):
+            yield
+    else:
+        yield
+
+
+def json_or_rich(result: dict, json_mode: bool, render_fn: Callable) -> None:
+    """If json_mode, dump raw JSON to stdout. Otherwise call render_fn."""
+    if json_mode:
+        print(json.dumps(result, indent=2))
+    else:
+        render_fn(result)
 
 
 def handle_api_result(
@@ -73,6 +95,14 @@ def handle_api_result(
     return False
 
 
+def require_success(result: dict, error_prefix: str = "Error") -> None:
+    """Check API result and raise typer.Exit(1) on failure."""
+    import typer
+
+    if not handle_api_result(result, error_prefix=error_prefix):
+        raise typer.Exit(code=1)
+
+
 def format_result_or_json(
     result: Dict[str, Any],
     json_mode: bool,
@@ -81,7 +111,6 @@ def format_result_or_json(
 ) -> bool:
     """If json_mode, dump raw JSON. Otherwise use handle_api_result."""
     if json_mode:
-        import json
-        console.print(json.dumps(result, indent=2))
+        print(json.dumps(result, indent=2))
         return result.get("success", False)
     return handle_api_result(result, success_msg=success_msg, error_prefix=error_prefix)

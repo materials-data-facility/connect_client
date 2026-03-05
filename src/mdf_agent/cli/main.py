@@ -125,6 +125,7 @@ def login(
     from mdf_agent.auth.globus import (
         DEFAULT_TOKEN_PATH,
         DATA_MDF_SCOPE,
+        GROUPS_SCOPE,
         TRANSFER_SCOPE,
         get_authorizer_for_scopes,
         get_scopes_for_service,
@@ -137,7 +138,7 @@ def login(
         get_authorizer(token=token, service_instance=resolved)
     else:
         scope, _rs = get_scopes_for_service(resolved)
-        get_authorizer_for_scopes([scope, DATA_MDF_SCOPE, TRANSFER_SCOPE])
+        get_authorizer_for_scopes([scope, DATA_MDF_SCOPE, TRANSFER_SCOPE, GROUPS_SCOPE])
     console.print("[green]Authentication ready[/green]")
     console.print(f"[dim]Token store:[/dim] {DEFAULT_TOKEN_PATH}")
     if token:
@@ -438,46 +439,111 @@ def publish(
         console.print(syntax)
         return
 
-    # Build a rich progress callback for file uploads
-    from rich.progress import Progress, BarColumn, DownloadColumn, TransferSpeedColumn
+    # Build rich progress display matching the clone UI:
+    # two-tier view with overall file count + per-file byte-level progress
+    import threading as _threading
+    from rich.live import Live
+    from rich.console import Group
+    from rich.progress import (
+        BarColumn, DownloadColumn, MofNCompleteColumn,
+        Progress, SpinnerColumn, TextColumn, TransferSpeedColumn,
+    )
 
     progress_callback = None
-    progress_ctx = None
-    file_tasks: dict = {}
+    on_files_resolved_cb = None
+    on_file_done_cb = None
+    live_ctx = None
 
     if sys.stderr.isatty():
-        progress_ctx = Progress(
-            "[progress.description]{task.description}",
-            BarColumn(),
+        overall_progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold]{task.description}"),
+            BarColumn(bar_width=40),
+            MofNCompleteColumn(),
+            console=console,
+        )
+        file_progress = Progress(
+            SpinnerColumn("dots2"),
+            TextColumn("[dim]{task.description}[/dim]"),
+            BarColumn(bar_width=None),
             DownloadColumn(),
             TransferSpeedColumn(),
             console=console,
-            transient=True,
         )
-        progress_ctx.start()
 
-        def _progress_cb(filename: str, bytes_sent: int, total_bytes: int) -> None:
-            if filename not in file_tasks:
-                file_tasks[filename] = progress_ctx.add_task(filename, total=total_bytes)
-            progress_ctx.update(file_tasks[filename], completed=bytes_sent)
+        overall_task_id = None
+        file_tasks: dict = {}
+        file_lock = _threading.Lock()
 
-        progress_callback = _progress_cb
+        def on_files_resolved_cb(count: int) -> None:
+            nonlocal overall_task_id
+            overall_task_id = overall_progress.add_task(
+                "[cyan]Uploading[/cyan]", total=count
+            )
+
+        def progress_callback(rel_path: str, bytes_sent: int, total_bytes: int) -> None:
+            filename = Path(rel_path).name
+            with file_lock:
+                if rel_path not in file_tasks:
+                    file_tasks[rel_path] = file_progress.add_task(
+                        filename, total=max(total_bytes, 1)
+                    )
+                file_progress.update(file_tasks[rel_path], completed=bytes_sent)
+
+        def on_file_done_cb(rel_path: str, _size: int) -> None:
+            filename = Path(rel_path).name
+            with file_lock:
+                tid = file_tasks.pop(rel_path, None)
+                if tid is not None:
+                    file_progress.update(
+                        tid, description=f"[dim green]✓ {filename}[/dim green]"
+                    )
+            if overall_task_id is not None:
+                overall_progress.advance(overall_task_id, 1)
+                task = overall_progress.tasks[overall_task_id]
+                if task.completed >= task.total:
+                    overall_progress.update(
+                        overall_task_id,
+                        description="[bold green]Upload complete[/bold green]",
+                    )
+            if tid is not None:
+                def _remove(task_id=tid):
+                    import time as _time
+                    _time.sleep(0.4)
+                    try:
+                        file_progress.remove_task(task_id)
+                    except Exception:
+                        pass
+                _threading.Thread(target=_remove, daemon=True).start()
+
+        live_ctx = Live(
+            Group(overall_progress, file_progress),
+            console=console,
+            refresh_per_second=15,
+        )
+        live_ctx.start()
 
     try:
-        with api_spinner("Publishing..."):
-            result = agent.publish(
-                test=test,
-                update=update,
-                dry_run=False,
-                token=token,
-                service_instance=resolved,
-                api_url=api_url,
-                dev_user_id=dev_user,
-                progress_callback=progress_callback,
-            )
+        result = agent.publish(
+            test=test,
+            update=update,
+            dry_run=False,
+            token=token,
+            service_instance=resolved,
+            api_url=api_url,
+            dev_user_id=dev_user,
+            progress_callback=progress_callback,
+            on_files_resolved=on_files_resolved_cb,
+            on_file_done=on_file_done_cb,
+        )
+    except RuntimeError as exc:
+        if live_ctx is not None:
+            live_ctx.stop()
+        console.print(f"\n[red]Upload failed:[/red] {exc}")
+        raise typer.Exit(code=1)
     finally:
-        if progress_ctx is not None:
-            progress_ctx.stop()
+        if live_ctx is not None:
+            live_ctx.stop()
 
     if json_output:
         print(json.dumps(result, indent=2))
@@ -1533,46 +1599,110 @@ def update(
         console.print(syntax)
         return
 
-    # Build progress callback for uploads
-    from rich.progress import Progress, BarColumn, DownloadColumn, TransferSpeedColumn
+    # Build rich progress display matching the clone UI
+    import threading as _threading
+    from rich.live import Live
+    from rich.console import Group
+    from rich.progress import (
+        BarColumn, DownloadColumn, MofNCompleteColumn,
+        Progress, SpinnerColumn, TextColumn, TransferSpeedColumn,
+    )
 
     progress_callback = None
-    progress_ctx = None
-    file_tasks: dict = {}
+    on_files_resolved_cb = None
+    on_file_done_cb = None
+    live_ctx = None
 
     if sys.stderr.isatty():
-        progress_ctx = Progress(
-            "[progress.description]{task.description}",
-            BarColumn(),
+        overall_progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold]{task.description}"),
+            BarColumn(bar_width=40),
+            MofNCompleteColumn(),
+            console=console,
+        )
+        file_progress = Progress(
+            SpinnerColumn("dots2"),
+            TextColumn("[dim]{task.description}[/dim]"),
+            BarColumn(bar_width=None),
             DownloadColumn(),
             TransferSpeedColumn(),
             console=console,
-            transient=True,
         )
-        progress_ctx.start()
 
-        def _progress_cb(filename: str, bytes_sent: int, total_bytes: int) -> None:
-            if filename not in file_tasks:
-                file_tasks[filename] = progress_ctx.add_task(filename, total=total_bytes)
-            progress_ctx.update(file_tasks[filename], completed=bytes_sent)
+        overall_task_id = None
+        file_tasks: dict = {}
+        file_lock = _threading.Lock()
 
-        progress_callback = _progress_cb
+        def on_files_resolved_cb(count: int) -> None:
+            nonlocal overall_task_id
+            overall_task_id = overall_progress.add_task(
+                "[cyan]Uploading[/cyan]", total=count
+            )
+
+        def progress_callback(rel_path: str, bytes_sent: int, total_bytes: int) -> None:
+            filename = Path(rel_path).name
+            with file_lock:
+                if rel_path not in file_tasks:
+                    file_tasks[rel_path] = file_progress.add_task(
+                        filename, total=max(total_bytes, 1)
+                    )
+                file_progress.update(file_tasks[rel_path], completed=bytes_sent)
+
+        def on_file_done_cb(rel_path: str, _size: int) -> None:
+            filename = Path(rel_path).name
+            with file_lock:
+                tid = file_tasks.pop(rel_path, None)
+                if tid is not None:
+                    file_progress.update(
+                        tid, description=f"[dim green]✓ {filename}[/dim green]"
+                    )
+            if overall_task_id is not None:
+                overall_progress.advance(overall_task_id, 1)
+                task = overall_progress.tasks[overall_task_id]
+                if task.completed >= task.total:
+                    overall_progress.update(
+                        overall_task_id,
+                        description="[bold green]Upload complete[/bold green]",
+                    )
+            if tid is not None:
+                def _remove(task_id=tid):
+                    import time as _time
+                    _time.sleep(0.4)
+                    try:
+                        file_progress.remove_task(task_id)
+                    except Exception:
+                        pass
+                _threading.Thread(target=_remove, daemon=True).start()
+
+        live_ctx = Live(
+            Group(overall_progress, file_progress),
+            console=console,
+            refresh_per_second=15,
+        )
+        live_ctx.start()
 
     try:
-        with api_spinner("Updating..."):
-            result = agent.publish(
-                test=False,
-                update=True,
-                dry_run=False,
-                token=token,
-                service_instance=resolved,
-                api_url=api_url,
-                dev_user_id=dev_user,
-                progress_callback=progress_callback,
-            )
+        result = agent.publish(
+            test=False,
+            update=True,
+            dry_run=False,
+            token=token,
+            service_instance=resolved,
+            api_url=api_url,
+            dev_user_id=dev_user,
+            progress_callback=progress_callback,
+            on_files_resolved=on_files_resolved_cb,
+            on_file_done=on_file_done_cb,
+        )
+    except RuntimeError as exc:
+        if live_ctx is not None:
+            live_ctx.stop()
+        console.print(f"\n[red]Upload failed:[/red] {exc}")
+        raise typer.Exit(code=1)
     finally:
-        if progress_ctx is not None:
-            progress_ctx.stop()
+        if live_ctx is not None:
+            live_ctx.stop()
 
     if json_output:
         print(json.dumps(result, indent=2))

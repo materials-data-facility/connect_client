@@ -55,6 +55,7 @@ SEARCH_INGEST_SCOPE = "urn:globus:auth:scope:search.api.globus.org:all"
 # collection UUID, not the hostname.
 NCSA_MDF_COLLECTION_UUID = "82f1b5c6-6e9b-11e5-ba47-22000b92c6ec"
 DATA_MDF_SCOPE = f"https://auth.globus.org/scopes/{NCSA_MDF_COLLECTION_UUID}/https"
+GROUPS_SCOPE = "urn:globus:auth:scope:groups.api.globus.org:view_my_groups_and_memberships"
 
 # Scope sets for different operations
 PUBLISH_SCOPES = [MDF_CONNECT_SCOPE]

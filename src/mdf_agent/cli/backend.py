@@ -26,7 +26,13 @@ def backend_callback(
     dev_user: Optional[str] = typer.Option(None, "--dev-user", help="Dev-mode user id (X-User-Id)"),
 ):
     """Interact with MDF backend (v2) API."""
+    import sys as _sys
+
     _auth_opts.update(service=service, token=token, dev_user=dev_user)
+    print(
+        "Hint: try top-level commands like 'mdf cite', 'mdf preview', 'mdf doctor' instead of 'mdf backend ...'",
+        file=_sys.stderr,
+    )
 
 
 def _client(api_url: Optional[str]) -> BackendClient:

@@ -463,6 +463,159 @@ def dataset_sample(
 
 
 @agent_safe
+def edit_metadata(
+    source_id: str,
+    version: str | None = None,
+    title: str | None = None,
+    description: str | None = None,
+    keywords: list | None = None,
+    api_url: str | None = None,
+    token: str | None = None,
+    service_instance: str = "prod",
+    dev_user_id: str | None = None,
+) -> Dict[str, Any]:
+    fields = {}
+    if title is not None:
+        fields["title"] = title
+    if description is not None:
+        fields["description"] = description
+    if keywords is not None:
+        fields["keywords"] = keywords
+    return _run_backend_action(
+        "edit_metadata",
+        api_url=api_url,
+        token=token,
+        service_instance=service_instance,
+        dev_user_id=dev_user_id,
+        source_id=source_id,
+        version=version,
+        **fields,
+    )
+
+
+@agent_safe
+def withdraw(
+    source_id: str,
+    reason: str = "",
+    version: str | None = None,
+    api_url: str | None = None,
+    token: str | None = None,
+    service_instance: str = "prod",
+    dev_user_id: str | None = None,
+) -> Dict[str, Any]:
+    return _run_backend_action(
+        "withdraw",
+        api_url=api_url,
+        token=token,
+        service_instance=service_instance,
+        dev_user_id=dev_user_id,
+        source_id=source_id,
+        reason=reason,
+        version=version,
+    )
+
+
+@agent_safe
+def resubmit(
+    source_id: str,
+    notes: str = "",
+    version: str | None = None,
+    api_url: str | None = None,
+    token: str | None = None,
+    service_instance: str = "prod",
+    dev_user_id: str | None = None,
+) -> Dict[str, Any]:
+    return _run_backend_action(
+        "resubmit",
+        api_url=api_url,
+        token=token,
+        service_instance=service_instance,
+        dev_user_id=dev_user_id,
+        source_id=source_id,
+        notes=notes,
+        version=version,
+    )
+
+
+@agent_safe
+def version_diff(
+    source_id: str,
+    from_version: str,
+    to_version: str,
+    api_url: str | None = None,
+    token: str | None = None,
+    service_instance: str = "prod",
+    dev_user_id: str | None = None,
+) -> Dict[str, Any]:
+    return _run_backend_action(
+        "version_diff",
+        api_url=api_url,
+        token=token,
+        service_instance=service_instance,
+        dev_user_id=dev_user_id,
+        source_id=source_id,
+        from_version=from_version,
+        to_version=to_version,
+    )
+
+
+@agent_safe
+def delete_submission(
+    source_id: str,
+    reason: str,
+    version: str | None = None,
+    api_url: str | None = None,
+    token: str | None = None,
+    service_instance: str = "prod",
+    dev_user_id: str | None = None,
+) -> Dict[str, Any]:
+    return _run_backend_action(
+        "delete_submission",
+        api_url=api_url,
+        token=token,
+        service_instance=service_instance,
+        dev_user_id=dev_user_id,
+        source_id=source_id,
+        reason=reason,
+        version=version,
+    )
+
+
+@agent_safe
+def admin_stats(
+    api_url: str | None = None,
+    token: str | None = None,
+    service_instance: str = "prod",
+    dev_user_id: str | None = None,
+) -> Dict[str, Any]:
+    return _run_backend_action(
+        "admin_stats",
+        api_url=api_url,
+        token=token,
+        service_instance=service_instance,
+        dev_user_id=dev_user_id,
+    )
+
+
+@agent_safe
+def dataset_stats(
+    source_id: str,
+    api_url: str | None = None,
+    token: str | None = None,
+    service_instance: str = "prod",
+    dev_user_id: str | None = None,
+) -> Dict[str, Any]:
+    return _run_backend_action(
+        "dataset_stats",
+        api_url=api_url,
+        token=token,
+        service_instance=service_instance,
+        dev_user_id=dev_user_id,
+        source_id=source_id,
+    )
+
+
+@agent_safe
 def health_check(
     api_url: str | None = None,
     token: str | None = None,

@@ -26,6 +26,13 @@ TOOLS = {
     "mdf_curation_review": handlers.curation_review,
     "mdf_curation_approve": handlers.curation_approve,
     "mdf_curation_reject": handlers.curation_reject,
+    "mdf_edit_metadata": handlers.edit_metadata,
+    "mdf_withdraw": handlers.withdraw,
+    "mdf_resubmit": handlers.resubmit,
+    "mdf_version_diff": handlers.version_diff,
+    "mdf_delete_submission": handlers.delete_submission,
+    "mdf_admin_stats": handlers.admin_stats,
+    "mdf_dataset_stats": handlers.dataset_stats,
 }
 
 __all__ = ["TOOLS"]

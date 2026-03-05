@@ -42,13 +42,17 @@ class BackendClient:
         user_id: Optional[str] = None,
         globus_data_token: Optional[str] = None,
         globus_transfer_token: Optional[str] = None,
+        mdf_connect_token: Optional[str] = None,
+        groups_token: Optional[str] = None,
     ):
         self.base_url = base_url.rstrip("/")
         self._client = httpx.Client(timeout=30.0)
         self._token = token
         self._user_id = user_id
         self._globus_data_token = globus_data_token
+        self._mdf_connect_token = mdf_connect_token
         self._globus_transfer_token = globus_transfer_token
+        self._groups_token = groups_token
 
     @classmethod
     def from_env(cls) -> "BackendClient":
@@ -128,11 +132,11 @@ class BackendClient:
             return cls(base_url=url)
 
         # Lazy import so token/dev-user workflows do not require globus_sdk.
-        from mdf_agent.auth.globus import get_authorizer_for_scopes, get_scopes_for_service, DATA_MDF_SCOPE, TRANSFER_SCOPE, NCSA_MDF_COLLECTION_UUID
+        from mdf_agent.auth.globus import get_authorizer_for_scopes, get_scopes_for_service, DATA_MDF_SCOPE, TRANSFER_SCOPE, GROUPS_SCOPE, NCSA_MDF_COLLECTION_UUID
 
         scope, _resource_server = get_scopes_for_service(service_instance)
         authorizers = get_authorizer_for_scopes(
-            [scope, DATA_MDF_SCOPE, TRANSFER_SCOPE],
+            [scope, DATA_MDF_SCOPE, TRANSFER_SCOPE, GROUPS_SCOPE],
         )
 
         bearer_prefix = "Bearer "
@@ -143,9 +147,10 @@ class BackendClient:
             h = authorizer.get_authorization_header()
             return h[len(bearer_prefix):] if h.startswith(bearer_prefix) else h
 
-        # Use the auth.globus.org token as Bearer — it carries the openid
-        # scope so the backend can call userinfo() for identity.
+        # openid token for userinfo() identity check
         openid_token = _extract(authorizers.get("auth.globus.org"))
+        # MDF Connect token for dependent token exchange (groups, transfer)
+        mdf_connect_token = _extract(authorizers.get(_resource_server))
 
         # Data token for Globus HTTPS file operations (X-Globus-Token header)
         # The resource server key is the collection UUID, not the hostname.
@@ -154,13 +159,19 @@ class BackendClient:
         # Transfer token for mkdir operations before HTTPS uploads
         transfer_token = _extract(authorizers.get("transfer.api.globus.org"))
 
-        return cls(base_url=url, token=openid_token, globus_data_token=data_token or None, globus_transfer_token=transfer_token or None)
+        # Groups token for direct group membership checks
+        groups_token = _extract(authorizers.get("groups.api.globus.org"))
+
+        return cls(base_url=url, token=openid_token, globus_data_token=data_token or None, globus_transfer_token=transfer_token or None, mdf_connect_token=mdf_connect_token or None, groups_token=groups_token or None)
 
     def close(self) -> None:
         self._client.close()
 
     def health(self) -> Dict[str, Any]:
         return self._request("GET", "/health")
+
+    def auth_check(self) -> Dict[str, Any]:
+        return self._request("GET", "/auth/check")
 
     def submit(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/submit", json_data=payload)
@@ -412,9 +423,80 @@ class BackendClient:
         """
         return self._request("POST", f"/stream/{stream_id}/download-url", json_data={"path": path})
 
-    def versions(self, source_id: str) -> Dict[str, Any]:
+    def versions(self, source_id: str, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
         """Get version history for a dataset."""
-        return self._request("GET", f"/versions/{source_id}")
+        params: Dict[str, Any] = {}
+        if limit != 50:
+            params["limit"] = limit
+        if offset:
+            params["offset"] = offset
+        return self._request("GET", f"/versions/{source_id}", params=params or None)
+
+    def edit_metadata(
+        self,
+        source_id: str,
+        version: Optional[str] = None,
+        **fields,
+    ) -> Dict[str, Any]:
+        """Edit metadata on a submission."""
+        payload: Dict[str, Any] = {k: v for k, v in fields.items() if v is not None}
+        if version:
+            payload["version"] = version
+        return self._request("POST", f"/submissions/{source_id}/metadata", json_data=payload)
+
+    def withdraw(
+        self,
+        source_id: str,
+        reason: str = "",
+        version: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Withdraw a pending_curation submission."""
+        payload: Dict[str, Any] = {"reason": reason}
+        if version:
+            payload["version"] = version
+        return self._request("POST", f"/submissions/{source_id}/withdraw", json_data=payload)
+
+    def resubmit(
+        self,
+        source_id: str,
+        notes: str = "",
+        version: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Resubmit a rejected submission."""
+        payload: Dict[str, Any] = {"notes": notes}
+        if version:
+            payload["version"] = version
+        return self._request("POST", f"/submissions/{source_id}/resubmit", json_data=payload)
+
+    def version_diff(
+        self,
+        source_id: str,
+        from_version: str,
+        to_version: str,
+    ) -> Dict[str, Any]:
+        """Get a structured diff between two versions."""
+        params = {"from": from_version, "to": to_version}
+        return self._request("GET", f"/versions/{source_id}/diff", params=params)
+
+    def delete_submission(
+        self,
+        source_id: str,
+        reason: str,
+        version: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Soft-delete a submission (curator-only)."""
+        payload: Dict[str, Any] = {"reason": reason}
+        if version:
+            payload["version"] = version
+        return self._request("POST", f"/submissions/{source_id}/delete", json_data=payload)
+
+    def admin_stats(self) -> Dict[str, Any]:
+        """Get admin statistics (curator-only)."""
+        return self._request("GET", "/admin/stats")
+
+    def dataset_stats(self, source_id: str) -> Dict[str, Any]:
+        """Get access/download stats for a published dataset."""
+        return self._request("GET", f"/stats/{source_id}")
 
     def get_card(self, source_id: str, version: Optional[str] = None) -> Dict[str, Any]:
         """Get a dataset preview card."""
@@ -622,6 +704,10 @@ class BackendClient:
             headers["X-User-Id"] = self._user_id
         if self._globus_data_token:
             headers["X-Globus-Token"] = self._globus_data_token
+        if self._mdf_connect_token:
+            headers["X-MDF-Token"] = self._mdf_connect_token
+        if self._groups_token:
+            headers["X-Groups-Token"] = self._groups_token
 
         last_exc: Optional[Exception] = None
         for attempt in range(self._MAX_RETRIES + 1):

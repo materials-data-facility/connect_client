@@ -24,7 +24,7 @@ import os
 import sys
 import tempfile
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import threading
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
@@ -199,6 +199,9 @@ def _upload_local_files(
     source_id: Optional[str] = None,
     progress_callback: Optional[Callable[[str, int, int], None]] = None,
     transfer_token: Optional[str] = None,
+    workers: int = 5,
+    on_files_resolved: Optional[Callable[[int], None]] = None,
+    on_file_done: Optional[Callable[[str, int], None]] = None,
 ) -> UploadResult:
     """Upload local file paths to MDF HTTPS storage, returning updated source list.
 
@@ -214,8 +217,12 @@ def _upload_local_files(
             deterministic paths. Falls back to ``/tmp/_uploads/{uuid}/``.
         progress_callback: Optional ``(filename, bytes_sent, total_bytes)`` callback.
         transfer_token: Globus Transfer API token, used to mkdir before upload.
+        workers: Number of parallel upload threads.
+        on_files_resolved: Callback with total file count once known.
+        on_file_done: Callback ``(rel_path, size_bytes)`` after each file finishes.
     """
     import uuid
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     updated: List[str] = []
     local_dirs: List[tuple[Path, str]] = []
@@ -226,42 +233,86 @@ def _upload_local_files(
         upload_id = uuid.uuid4().hex[:8]
         upload_prefix = f"/tmp/_uploads/{upload_id}"
 
-    # Create the upload directory on the collection via Transfer API
-    if transfer_token:
-        _mkdir_on_collection(upload_prefix + "/", transfer_token)
-
     # Count directories to determine prefix logic
     dir_count = sum(1 for s in data_sources if not s.startswith(("globus://", "https://", "http://", "stream://")) and Path(s).is_dir())
 
+    # First pass: collect all files to upload and the directories they need
+    upload_plan: List[tuple[Path, str]] = []  # (local_file, dest_path)
+    needed_dirs: set[str] = set()
+
     for source in data_sources:
-        # Skip anything that's already a URL
         if source.startswith(("globus://", "https://", "http://", "stream://")):
             updated.append(source)
             continue
 
         local_path = Path(source)
         if not local_path.exists():
-            # Keep as-is — server will validate
             updated.append(source)
             continue
 
         if local_path.is_dir():
-            # Track for zip archive creation
             prefix = local_path.name if dir_count > 1 else ""
             local_dirs.append((local_path.resolve(), prefix))
-            # Upload directory contents recursively
             for file_path in sorted(local_path.rglob("*")):
                 if file_path.is_file():
                     relative = file_path.relative_to(local_path)
                     dest_path = f"{upload_prefix}/{relative}"
-                    uri = _https_put_file(file_path, dest_path, data_token, progress_callback=progress_callback)
-                    if uri:
-                        updated.append(uri)
+                    upload_plan.append((file_path, dest_path))
+                    # Collect all ancestor directories under upload_prefix
+                    parent = str(PurePosixPath(dest_path).parent)
+                    while parent and parent != upload_prefix and parent != "/":
+                        needed_dirs.add(parent)
+                        parent = str(PurePosixPath(parent).parent)
         else:
             dest_path = f"{upload_prefix}/{local_path.name}"
-            uri = _https_put_file(local_path, dest_path, data_token, progress_callback=progress_callback)
-            if uri:
-                updated.append(uri)
+            upload_plan.append((local_path, dest_path))
+
+    # Create all needed directories on the collection (shallowest first)
+    if transfer_token and (upload_plan or local_dirs):
+        _mkdir_on_collection(upload_prefix + "/", transfer_token)
+        for d in sorted(needed_dirs, key=lambda p: p.count("/")):
+            _mkdir_on_collection(d + "/", transfer_token)
+
+    # Signal total file count (individual files + zip archive if applicable)
+    total_upload_count = len(upload_plan) + (1 if local_dirs else 0)
+    if on_files_resolved and total_upload_count > 0:
+        on_files_resolved(total_upload_count)
+
+    # Upload files in parallel
+    errors: List[str] = []
+    lock = threading.Lock()
+
+    def _upload_one(item: tuple[Path, str]) -> Optional[str]:
+        file_path, dest_path = item
+        rel_path = dest_path[len(upload_prefix) + 1:]  # strip prefix for display
+
+        def _cb(fname: str, sent: int, total: int) -> None:
+            if progress_callback:
+                progress_callback(rel_path, sent, total)
+
+        uri = _https_put_file(file_path, dest_path, data_token, progress_callback=_cb)
+        size = file_path.stat().st_size
+        if on_file_done:
+            on_file_done(rel_path, size)
+        return uri
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(_upload_one, item): item for item in upload_plan}
+        for future in as_completed(futures):
+            try:
+                uri = future.result()
+                if uri:
+                    with lock:
+                        updated.append(uri)
+            except Exception as exc:
+                item = futures[future]
+                with lock:
+                    errors.append(f"{item[0].name}: {exc}")
+
+    if errors:
+        raise RuntimeError(
+            f"Failed to upload {len(errors)} file(s):\n" + "\n".join(errors)
+        )
 
     # Create and upload zip archive for local directories
     archive_url: Optional[str] = None
@@ -275,9 +326,16 @@ def _upload_local_files(
                 if transfer_token:
                     _mkdir_on_collection(mdf_dir + "/", transfer_token)
                 dest = f"{mdf_dir}/data.zip"
-                uri = _https_put_file(zip_path, dest, data_token, progress_callback=progress_callback)
+
+                def _zip_cb(fname: str, sent: int, total: int) -> None:
+                    if progress_callback:
+                        progress_callback(".mdf/data.zip", sent, total)
+
+                uri = _https_put_file(zip_path, dest, data_token, progress_callback=_zip_cb)
                 if uri:
                     archive_url = uri
+                if on_file_done:
+                    on_file_done(".mdf/data.zip", archive_size)
             finally:
                 zip_path.unlink(missing_ok=True)
 
@@ -638,6 +696,9 @@ class MDFAgent:
         dev_user_id: Optional[str] = None,
         authorizer: Optional[Any] = None,
         progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        workers: int = 5,
+        on_files_resolved: Optional[Callable[[int], None]] = None,
+        on_file_done: Optional[Callable[[str, int], None]] = None,
     ) -> Dict[str, Any]:
         payload = self.build_submission(test=test, update=update)
         if dry_run:
@@ -656,6 +717,16 @@ class MDFAgent:
             service_instance=service_instance,
             dev_user_id=dev_user_id,
         )
+
+        # Pre-flight check: verify auth and group membership before uploading
+        try:
+            auth_info = client.auth_check()
+            if not auth_info.get("is_submitter"):
+                return {"success": False, "error": "You are not authorized to submit datasets. "
+                        "Ensure you are a member of the MDF submitters group."}
+        except Exception:
+            pass  # If the endpoint doesn't exist (old backend), skip the check
+
         try:
             # Upload local files to MDF storage via HTTPS and replace
             # paths with globus:// URIs before submitting.
@@ -670,6 +741,9 @@ class MDFAgent:
                     source_id=upload_source_id,
                     progress_callback=progress_callback,
                     transfer_token=client._globus_transfer_token,
+                    workers=workers,
+                    on_files_resolved=on_files_resolved,
+                    on_file_done=on_file_done,
                 )
                 payload["data_sources"] = upload_result.data_sources
                 if upload_result.archive_url:
