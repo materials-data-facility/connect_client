@@ -1037,6 +1037,7 @@ class MDFAgent:
         progress_callback: Optional[Callable[[str, int, int], None]] = None,
         on_files_resolved: Optional[Callable[[int], None]] = None,
         on_file_done: Optional[Callable[[str, int], None]] = None,
+        stage_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
         api_url: Optional[str] = None,
         token: Optional[str] = None,
         service_instance: str = "prod",
@@ -1065,77 +1066,190 @@ class MDFAgent:
             dev_user_id=dev_user_id,
         )
         try:
-            # Resolve DOI → source_id if the identifier looks like a DOI
-            doi = _extract_doi(source_id)
-            if doi:
-                resolved_id = _resolve_doi(client, doi)
-                if resolved_id:
-                    source_id = resolved_id
+            plan = self._prepare_clone(client, source_id, output_dir, version, method)
+            if not plan.get("success"):
+                return plan
 
-            card_resp = client.get_card(source_id, version=version)
-            card = card_resp.get("card", card_resp)
-            if not card.get("source_id"):
-                return {"success": False, "error": f"Dataset '{source_id}' not found"}
+            if stage_callback:
+                stage_callback("resolving_dataset", plan)
 
-            download_url = card.get("download_url")
-            archive_size = card.get("archive_size")
-            data_sources = card.get("data_sources", [])
-            data_token = client._globus_data_token or ""
-            transfer_token = client._globus_transfer_token or ""
-
-            out = Path(output_dir).resolve()
-            out.mkdir(parents=True, exist_ok=True)
-
-            # Strategy selection
-            if method == "transfer":
-                return self._clone_via_transfer(
-                    data_sources, transfer_token, out, card,
+            selected_method = plan["selected_method"]
+            if selected_method == "transfer":
+                if stage_callback:
+                    stage_callback("queueing_transfer", plan)
+                result = self._clone_via_transfer(
+                    plan["data_sources"],
+                    plan["transfer_token"],
+                    plan["out"],
+                    plan["card"],
+                    stage_callback=stage_callback,
                 )
+                result["resolved_source_id"] = plan["resolved_source_id"]
+                return result
 
-            if method == "auto" and download_url:
-                use_zip = True
-            elif method == "https":
-                use_zip = False
-            else:
-                use_zip = bool(download_url)
-
-            # A download_url ending with "/" is a directory listing, not a zip.
-            # Skip straight to file-by-file for those.
-            is_directory_url = download_url and download_url.rstrip("?").endswith("/")
-
-            if use_zip and download_url and not is_directory_url:
+            if selected_method == "zip":
+                if stage_callback:
+                    stage_callback("downloading_archive", plan)
                 try:
-                    return self._clone_via_zip(
-                        download_url, data_token, out, card,
+                    result = self._clone_via_zip(
+                        plan["download_url"],
+                        plan["data_token"],
+                        plan["out"],
+                        plan["card"],
                         progress_callback=progress_callback,
+                        stage_callback=stage_callback,
                     )
+                    result["resolved_source_id"] = plan["resolved_source_id"]
+                    return result
                 except zipfile.BadZipFile:
                     print(
                         "Note: download_url did not return a zip archive — "
                         "falling back to file-by-file HTTPS download.",
                         file=sys.stderr,
                     )
+                    if stage_callback:
+                        stage_callback("falling_back_to_https", plan)
 
-            # HTTPS file-by-file (parallel)
-            if not data_sources:
-                return {"success": False, "error": "No data sources found for this dataset"}
-
-            files = _resolve_globus_files(data_sources, transfer_token)
+            files = plan.get("files")
             if not files:
                 return {
                     "success": False,
                     "error": "No HTTPS-downloadable files found. Try --transfer for cross-endpoint downloads.",
                 }
 
-            return self._clone_via_https(
-                files, data_token, out, card,
+            if stage_callback:
+                plan["file_count"] = len(files)
+                stage_callback("downloading_files", plan)
+            result = self._clone_via_https(
+                files,
+                plan["data_token"],
+                plan["out"],
+                plan["card"],
                 workers=workers,
                 progress_callback=progress_callback,
                 on_files_resolved=on_files_resolved,
                 on_file_done=on_file_done,
+                stage_callback=stage_callback,
             )
+            result["resolved_source_id"] = plan["resolved_source_id"]
+            return result
         finally:
             client.close()
+
+    def plan_clone(
+        self,
+        source_id: str,
+        output_dir: str = ".",
+        version: Optional[str] = None,
+        method: str = "auto",
+        api_url: Optional[str] = None,
+        token: Optional[str] = None,
+        service_instance: str = "prod",
+        dev_user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Inspect how clone will behave without downloading data."""
+        client = BackendClient.authenticated(
+            base_url=api_url,
+            token=token,
+            service_instance=service_instance,
+            dev_user_id=dev_user_id,
+        )
+        try:
+            plan = self._prepare_clone(client, source_id, output_dir, version, method)
+        finally:
+            client.close()
+
+        if not plan.get("success"):
+            return plan
+
+        return {
+            "success": True,
+            "requested_identifier": plan["requested_identifier"],
+            "resolved_source_id": plan["resolved_source_id"],
+            "version": plan.get("version"),
+            "title": plan.get("title"),
+            "output_path": plan["path"],
+            "requested_method": plan["requested_method"],
+            "selected_method": plan["selected_method"],
+            "archive_available": plan["archive_available"],
+            "archive_size": plan.get("archive_size"),
+            "file_count": plan.get("file_count"),
+        }
+
+    def _prepare_clone(
+        self,
+        client: BackendClient,
+        source_id: str,
+        output_dir: str,
+        version: Optional[str],
+        method: str,
+    ) -> Dict[str, Any]:
+        requested_identifier = source_id
+
+        doi = _extract_doi(source_id)
+        if doi:
+            resolved_id = _resolve_doi(client, doi)
+            if resolved_id:
+                source_id = resolved_id
+
+        card_resp = client.get_card(source_id, version=version)
+        card = card_resp.get("card", card_resp)
+        if not card.get("source_id"):
+            return {"success": False, "error": f"Dataset '{source_id}' not found"}
+
+        download_url = card.get("download_url")
+        data_sources = card.get("data_sources", [])
+        data_token = client._globus_data_token or ""
+        transfer_token = client._globus_transfer_token or ""
+
+        out = Path(output_dir).resolve()
+        out.mkdir(parents=True, exist_ok=True)
+
+        is_directory_url = bool(download_url and download_url.rstrip("?").endswith("/"))
+        archive_available = bool(download_url and not is_directory_url)
+
+        if method == "transfer":
+            selected_method = "transfer"
+        elif method == "https":
+            selected_method = "https"
+        elif archive_available:
+            selected_method = "zip"
+        else:
+            selected_method = "https"
+
+        files = None
+        file_count = None
+        if selected_method == "https":
+            if not data_sources:
+                return {"success": False, "error": "No data sources found for this dataset"}
+            files = _resolve_globus_files(data_sources, transfer_token)
+            if not files:
+                return {
+                    "success": False,
+                    "error": "No HTTPS-downloadable files found. Try --transfer for cross-endpoint downloads.",
+                }
+            file_count = len(files)
+
+        return {
+            "success": True,
+            "requested_identifier": requested_identifier,
+            "resolved_source_id": card.get("source_id"),
+            "version": card.get("version") or version,
+            "title": card.get("title"),
+            "path": str(out),
+            "out": out,
+            "requested_method": method,
+            "selected_method": selected_method,
+            "archive_available": archive_available,
+            "archive_size": card.get("archive_size"),
+            "download_url": download_url,
+            "data_sources": data_sources,
+            "data_token": data_token,
+            "transfer_token": transfer_token,
+            "card": card,
+            "files": files,
+            "file_count": file_count,
+        }
 
     def _clone_via_zip(
         self,
@@ -1144,6 +1258,7 @@ class MDFAgent:
         out: Path,
         card: Dict[str, Any],
         progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        stage_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> Dict[str, Any]:
         """Download and extract a zip archive."""
         tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
@@ -1156,14 +1271,18 @@ class MDFAgent:
                 progress_callback=progress_callback,
             )
             with zipfile.ZipFile(tmp_path) as zf:
+                members = zf.namelist()
+                if stage_callback:
+                    stage_callback("extracting_archive", {"files_count": len(members), "path": str(out)})
                 zf.extractall(out)
-                file_count = len(zf.namelist())
+                file_count = len(members)
         finally:
             tmp_path.unlink(missing_ok=True)
 
         return {
             "success": True,
             "method": "zip",
+            "partial": False,
             "files_count": file_count,
             "path": str(out),
             "source_id": card.get("source_id"),
@@ -1180,10 +1299,13 @@ class MDFAgent:
         progress_callback: Optional[Callable[[str, int, int], None]] = None,
         on_files_resolved: Optional[Callable[[int], None]] = None,
         on_file_done: Optional[Callable[[str, int], None]] = None,
+        stage_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> Dict[str, Any]:
         """Download files in parallel via HTTPS GET."""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
+        if stage_callback:
+            stage_callback("downloading_files", {"files_count": len(files), "path": str(out)})
         if on_files_resolved:
             on_files_resolved(len(files))
 
@@ -1221,7 +1343,9 @@ class MDFAgent:
         return {
             "success": len(errors) == 0,
             "method": "https",
+            "partial": bool(errors) and downloaded > 0,
             "files_count": downloaded,
+            "failed_count": len(errors),
             "errors": errors or None,
             "path": str(out),
             "source_id": card.get("source_id"),
@@ -1234,6 +1358,7 @@ class MDFAgent:
         transfer_token: str,
         out: Path,
         card: Dict[str, Any],
+        stage_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> Dict[str, Any]:
         """Submit a Globus Transfer task."""
         import globus_sdk
@@ -1272,10 +1397,13 @@ class MDFAgent:
 
             result = tc.submit_transfer(td)
             task_id = result.get("task_id", "")
+            if stage_callback:
+                stage_callback("transfer_queued", {"task_id": task_id, "path": str(out)})
 
             return {
                 "success": True,
                 "method": "transfer",
+                "partial": False,
                 "task_id": task_id,
                 "monitor_url": f"https://app.globus.org/activity/{task_id}",
                 "path": str(out),

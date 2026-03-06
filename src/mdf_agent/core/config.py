@@ -11,15 +11,15 @@ from pathlib import Path
 from typing import Any, Optional
 
 
-_CONFIG_DIR = Path.home() / ".config" / "mdf_agent"
-_CONFIG_PATH = _CONFIG_DIR / "config.json"
+def _default_config_path() -> Path:
+    return Path.home() / ".config" / "mdf_agent" / "config.json"
 
 
 class GlobalConfig:
     """JSON-backed global config at ~/.config/mdf_agent/config.json."""
 
     def __init__(self, path: Optional[Path] = None):
-        self._path = path or _CONFIG_PATH
+        self._path = path or _default_config_path()
         self._data: dict = {}
         self._load()
 
