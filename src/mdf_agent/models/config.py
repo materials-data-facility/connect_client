@@ -134,13 +134,13 @@ class ManifestConfig(BaseModel):
         if self.domains:
             payload["domains"] = self.domains
 
-        # External import provenance
-        if self.external_doi:
-            payload["external_doi"] = self.external_doi
-        if self.external_url:
-            payload["external_url"] = self.external_url
-        if self.external_source:
-            payload["external_source"] = self.external_source
+        # External import provenance (structured format)
+        if self.external_doi or self.external_url or self.external_source:
+            payload["external"] = {
+                "source": self.external_source or "Unknown",
+                "doi": self.external_doi,
+                "url": self.external_url,
+            }
 
         # Related works (from related_dois)
         if self.related_dois:

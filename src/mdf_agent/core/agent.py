@@ -1412,3 +1412,113 @@ class MDFAgent:
             }
 
         return {"success": False, "error": "No globus:// sources found for transfer"}
+
+    def import_external(
+        self,
+        identifier: str,
+        output_dir: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        on_files_resolved: Optional[Callable[[int], None]] = None,
+        on_file_done: Optional[Callable[[str, int], None]] = None,
+    ) -> Dict[str, Any]:
+        """Fetch metadata and data files from an external repository.
+
+        Args:
+            identifier: External identifier (e.g. "zenodo:12345").
+            output_dir: Directory for downloaded files.
+            metadata: Pre-fetched metadata dict (avoids redundant API call).
+            progress_callback: Per-file byte progress callback.
+            on_files_resolved: Called with total file count.
+            on_file_done: Called after each file completes.
+
+        Returns a dict with:
+            success: bool
+            metadata: dict (from adapter)
+            manifest: ManifestConfig (ready for publish)
+            output_dir: str (path where files were downloaded)
+        """
+        from mdf_agent.importers.registry import resolve_adapter
+
+        adapter = resolve_adapter(identifier)
+        if not adapter:
+            return {"success": False, "error": f"No adapter found for: {identifier}"}
+
+        if metadata is None:
+            try:
+                metadata = adapter.fetch_metadata(identifier)
+            except Exception as exc:
+                return {"success": False, "error": f"Failed to fetch metadata: {exc}"}
+
+        # Determine output directory
+        if not output_dir:
+            safe_name = re.sub(r"[^\w\-.]", "_", metadata.get("title", "import")[:60])
+            output_dir = safe_name
+
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+
+        # Download files
+        file_urls = metadata.get("file_urls", [])
+        if on_files_resolved and file_urls:
+            on_files_resolved(len(file_urls))
+
+        import httpx
+
+        downloaded = []
+        timeout = httpx.Timeout(connect=30, read=300, write=300, pool=30)
+        with httpx.Client(timeout=timeout) as client:
+            for finfo in file_urls:
+                url = finfo.get("url", "")
+                filename = finfo.get("filename", url.rsplit("/", 1)[-1])
+                dest = out / filename
+                dest.parent.mkdir(parents=True, exist_ok=True)
+
+                total = finfo.get("size", 0)
+                with client.stream("GET", url) as resp:
+                    resp.raise_for_status()
+                    total = int(resp.headers.get("content-length", total))
+                    received = 0
+                    with open(dest, "wb") as f:
+                        for chunk in resp.iter_bytes(chunk_size=_UPLOAD_CHUNK_SIZE):
+                            f.write(chunk)
+                            received += len(chunk)
+                            if progress_callback:
+                                progress_callback(filename, received, total)
+                if on_file_done:
+                    on_file_done(filename, dest.stat().st_size)
+                downloaded.append(str(dest))
+
+        # Build ManifestConfig
+        authors_raw = metadata.get("authors", [{"name": "Unknown"}])
+        from mdf_agent.models.config import Author as ConfigAuthor
+        authors = []
+        for a in authors_raw:
+            if isinstance(a, dict):
+                authors.append(ConfigAuthor(
+                    name=a.get("name", "Unknown"),
+                    orcid=a.get("orcid"),
+                    affiliations=a.get("affiliations"),
+                ))
+            else:
+                authors.append(ConfigAuthor(name=str(a)))
+
+        manifest = ManifestConfig(
+            title=metadata.get("title", "Imported Dataset"),
+            authors=authors,
+            description=metadata.get("description"),
+            data_sources=["."],
+            external_doi=metadata.get("doi"),
+            external_url=metadata.get("url"),
+            external_source=metadata.get("external_source", adapter.name()),
+        )
+        if metadata.get("keywords"):
+            manifest.subjects = metadata["keywords"]
+
+        return {
+            "success": True,
+            "metadata": metadata,
+            "manifest": manifest,
+            "output_dir": str(out),
+            "files_downloaded": len(downloaded),
+        }

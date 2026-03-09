@@ -158,9 +158,9 @@ def build_submission(
         domains=metadata.get("domains"),
         acl=metadata.get("acl"),
         related_works=metadata.get("related_works"),
-        external_doi=metadata.get("external_doi"),
-        external_url=metadata.get("external_url"),
-        external_source=metadata.get("external_source"),
+        external_doi=metadata.get("external_doi") or (metadata.get("external", {}) or {}).get("doi"),
+        external_url=metadata.get("external_url") or (metadata.get("external", {}) or {}).get("url"),
+        external_source=metadata.get("external_source") or (metadata.get("external", {}) or {}).get("source"),
         extensions=metadata.get("extensions"),
         ml=metadata.get("ml"),
         # Legacy fields that still need to be passed through

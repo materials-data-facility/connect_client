@@ -2091,6 +2091,341 @@ def update_alias(
         require_success(result, error_prefix="Update failed")
 
 
+# ---------------------------------------------------------------------------
+# Import (cross-publish from external repos)
+# ---------------------------------------------------------------------------
+
+@app.command("import", rich_help_panel=PANEL_PUBLISH)
+def import_external(
+    identifier: str = typer.Argument(..., help="External identifier (e.g. zenodo:12345, https://zenodo.org/records/12345)"),
+    output_dir: Optional[str] = typer.Option(None, "--output", "-o", help="Output directory for downloaded files"),
+    dry_run: bool = typer.Option(True, "--dry-run/--submit", help="Preview metadata without downloading"),
+    test: bool = typer.Option(False, "--test", help="Submit to test environment"),
+    json_output: bool = typer.Option(False, "--json", help="JSON output"),
+    no_watch: bool = typer.Option(False, "--no-watch", help="Do not watch after submit"),
+    service: Optional[str] = typer.Option(None, "--service", "-s", help="Service instance (staging/prod/dev/local)"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API URL"),
+    token: Optional[str] = typer.Option(None, "--token", help="Globus access token"),
+    dev_user: Optional[str] = typer.Option(None, "--dev-user", help="Dev-mode user id"),
+):
+    """Import a dataset from an external repository (Zenodo, etc.).
+
+    Fetches metadata and data files, then publishes to MDF with
+    provenance linking back to the original source.
+
+    Examples:
+        mdf import zenodo:12345                    # preview metadata
+        mdf import zenodo:12345 --submit           # download + submit
+        mdf import zenodo:12345 -o ./data --submit # custom output dir
+    """
+    from mdf_agent.importers.registry import resolve_adapter
+
+    adapter = resolve_adapter(identifier)
+    if not adapter:
+        console.print(f"[red]No adapter found for:[/red] {identifier}")
+        console.print("[dim]Supported formats: zenodo:ID, https://zenodo.org/records/ID[/dim]")
+        raise typer.Exit(code=1)
+
+    # Fetch metadata
+    with api_spinner(f"Fetching metadata from {adapter.name()}..."):
+        try:
+            metadata = adapter.fetch_metadata(identifier)
+        except Exception as exc:
+            console.print(f"[red]Failed to fetch metadata:[/red] {exc}")
+            raise typer.Exit(code=1)
+
+    # Show metadata panel
+    if not json_output:
+        table = Table(show_header=False, box=rich_box.SIMPLE, padding=(0, 2))
+        table.add_column("Field", style="bold")
+        table.add_column("Value")
+        table.add_row("Source", f"[cyan]{adapter.name()}[/cyan]")
+        table.add_row("Title", metadata.get("title", ""))
+        authors_str = ", ".join(a.get("name", "") for a in metadata.get("authors", []))
+        table.add_row("Authors", authors_str)
+        desc = metadata.get("description", "")
+        if len(desc) > 200:
+            desc = desc[:200] + "..."
+        table.add_row("Description", desc)
+        if metadata.get("keywords"):
+            table.add_row("Keywords", ", ".join(metadata["keywords"]))
+        if metadata.get("license"):
+            lic = metadata["license"]
+            table.add_row("License", lic.get("name", "") if isinstance(lic, dict) else str(lic))
+        if metadata.get("doi"):
+            table.add_row("DOI", f"[link=https://doi.org/{metadata['doi']}]{metadata['doi']}[/link]")
+        table.add_row("URL", metadata.get("url", ""))
+        files = metadata.get("file_urls", [])
+        total_size = sum(f.get("size", 0) for f in files)
+        table.add_row("Files", f"{len(files)} files ({_human_size(total_size)})")
+
+        console.print(Panel(table, title=f"[bold]{adapter.name()} Import[/bold]", border_style="cyan"))
+
+    if dry_run:
+        if json_output:
+            print(json.dumps({"success": True, "dry_run": True, "metadata": metadata}, indent=2))
+        else:
+            if metadata.get("file_urls"):
+                console.print("\n[dim]Files:[/dim]")
+                for f in metadata["file_urls"][:10]:
+                    size_str = f" ({_human_size(f['size'])})" if f.get("size") else ""
+                    console.print(f"  [dim]•[/dim] {f.get('filename', '?')}{size_str}")
+                if len(metadata["file_urls"]) > 10:
+                    console.print(f"  [dim]... and {len(metadata['file_urls']) - 10} more[/dim]")
+            console.print(f"\n[bold]Ready to import. Run:[/bold]")
+            console.print(f"  [cyan]mdf import {identifier} --submit[/cyan]")
+        return
+
+    # Download + submit
+    import threading as _threading
+    from rich.live import Live
+    from rich.console import Group
+    from rich.progress import (
+        BarColumn, DownloadColumn, MofNCompleteColumn,
+        Progress, SpinnerColumn, TextColumn, TransferSpeedColumn,
+    )
+
+    resolved = resolve_service(service)
+    agent = MDFAgent()
+
+    progress_callback = None
+    on_files_resolved_cb = None
+    on_file_done_cb = None
+    live_ctx = None
+
+    if sys.stderr.isatty():
+        overall_progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold]{task.description}"),
+            BarColumn(bar_width=40),
+            MofNCompleteColumn(),
+            console=console,
+        )
+        file_progress = Progress(
+            SpinnerColumn("dots2"),
+            TextColumn("[dim]{task.description}[/dim]"),
+            BarColumn(bar_width=None),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            console=console,
+        )
+
+        overall_task_id = None
+        file_tasks: dict = {}
+        file_lock = _threading.Lock()
+
+        def on_files_resolved_cb(count: int) -> None:
+            nonlocal overall_task_id
+            overall_task_id = overall_progress.add_task(
+                f"[cyan]Downloading from {adapter.name()}[/cyan]", total=count
+            )
+
+        def progress_callback(rel_path: str, bytes_sent: int, total_bytes: int) -> None:
+            filename = Path(rel_path).name
+            with file_lock:
+                if rel_path not in file_tasks:
+                    file_tasks[rel_path] = file_progress.add_task(
+                        filename, total=max(total_bytes, 1)
+                    )
+                file_progress.update(file_tasks[rel_path], completed=bytes_sent)
+
+        def on_file_done_cb(rel_path: str, _size: int) -> None:
+            filename = Path(rel_path).name
+            with file_lock:
+                tid = file_tasks.pop(rel_path, None)
+                if tid is not None:
+                    file_progress.update(
+                        tid, description=f"[dim green]✓ {filename}[/dim green]"
+                    )
+            if overall_task_id is not None:
+                overall_progress.advance(overall_task_id, 1)
+                task = overall_progress.tasks[overall_task_id]
+                if task.completed >= task.total:
+                    overall_progress.update(
+                        overall_task_id,
+                        description=f"[bold green]Download complete[/bold green]",
+                    )
+            if tid is not None:
+                def _remove(task_id=tid):
+                    import time as _time
+                    _time.sleep(0.4)
+                    try:
+                        file_progress.remove_task(task_id)
+                    except Exception:
+                        pass
+                _threading.Thread(target=_remove, daemon=True).start()
+
+        live_ctx = Live(
+            Group(overall_progress, file_progress),
+            console=console,
+            refresh_per_second=15,
+        )
+        live_ctx.start()
+
+    try:
+        result = agent.import_external(
+            identifier=identifier,
+            output_dir=output_dir,
+            metadata=metadata,
+            progress_callback=progress_callback,
+            on_files_resolved=on_files_resolved_cb,
+            on_file_done=on_file_done_cb,
+        )
+    except Exception as exc:
+        if live_ctx is not None:
+            live_ctx.stop()
+        console.print(f"\n[red]Import failed:[/red] {exc}")
+        raise typer.Exit(code=1)
+    finally:
+        if live_ctx is not None:
+            live_ctx.stop()
+
+    if not result.get("success"):
+        if json_output:
+            print(json.dumps(result, indent=2))
+        else:
+            console.print(f"\n[red]Import failed:[/red] {result.get('error', 'Unknown error')}")
+        raise typer.Exit(code=1)
+
+    # Now publish using the generated manifest (includes upload to MDF storage)
+    manifest = result["manifest"]
+    agent_pub = MDFAgent(root=Path(result["output_dir"]), manifest=manifest)
+
+    if not json_output:
+        console.print(f"\n[bold green]Downloaded {result.get('files_downloaded', 0)} files[/bold green] to [cyan]{result['output_dir']}[/cyan]")
+        console.print("[dim]Uploading to MDF and submitting...[/dim]")
+
+    # Build upload progress UI (reuse same pattern for the publish/upload phase)
+    upload_progress_cb = None
+    upload_files_resolved_cb = None
+    upload_file_done_cb = None
+    upload_live_ctx = None
+
+    if sys.stderr.isatty():
+        upload_overall = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold]{task.description}"),
+            BarColumn(bar_width=40),
+            MofNCompleteColumn(),
+            console=console,
+        )
+        upload_file_progress = Progress(
+            SpinnerColumn("dots2"),
+            TextColumn("[dim]{task.description}[/dim]"),
+            BarColumn(bar_width=None),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            console=console,
+        )
+
+        upload_overall_task_id = None
+        upload_file_tasks: dict = {}
+        upload_file_lock = _threading.Lock()
+
+        def upload_files_resolved_cb(count: int) -> None:
+            nonlocal upload_overall_task_id
+            upload_overall_task_id = upload_overall.add_task(
+                "[cyan]Uploading to MDF[/cyan]", total=count
+            )
+
+        def upload_progress_cb(rel_path: str, bytes_sent: int, total_bytes: int) -> None:
+            filename = Path(rel_path).name
+            with upload_file_lock:
+                if rel_path not in upload_file_tasks:
+                    upload_file_tasks[rel_path] = upload_file_progress.add_task(
+                        filename, total=max(total_bytes, 1)
+                    )
+                upload_file_progress.update(upload_file_tasks[rel_path], completed=bytes_sent)
+
+        def upload_file_done_cb(rel_path: str, _size: int) -> None:
+            filename = Path(rel_path).name
+            with upload_file_lock:
+                tid = upload_file_tasks.pop(rel_path, None)
+                if tid is not None:
+                    upload_file_progress.update(
+                        tid, description=f"[dim green]✓ {filename}[/dim green]"
+                    )
+            if upload_overall_task_id is not None:
+                upload_overall.advance(upload_overall_task_id, 1)
+                task = upload_overall.tasks[upload_overall_task_id]
+                if task.completed >= task.total:
+                    upload_overall.update(
+                        upload_overall_task_id,
+                        description="[bold green]Upload complete[/bold green]",
+                    )
+            if tid is not None:
+                def _remove(task_id=tid):
+                    import time as _time
+                    _time.sleep(0.4)
+                    try:
+                        upload_file_progress.remove_task(task_id)
+                    except Exception:
+                        pass
+                _threading.Thread(target=_remove, daemon=True).start()
+
+        upload_live_ctx = Live(
+            Group(upload_overall, upload_file_progress),
+            console=console,
+            refresh_per_second=15,
+        )
+        upload_live_ctx.start()
+
+    try:
+        pub_result = agent_pub.publish(
+            test=test,
+            dry_run=False,
+            token=token,
+            service_instance=resolved,
+            api_url=api_url,
+            dev_user_id=dev_user,
+            progress_callback=upload_progress_cb,
+            on_files_resolved=upload_files_resolved_cb,
+            on_file_done=upload_file_done_cb,
+        )
+    except RuntimeError as exc:
+        if upload_live_ctx is not None:
+            upload_live_ctx.stop()
+        console.print(f"\n[red]Upload failed:[/red] {exc}")
+        raise typer.Exit(code=1)
+    finally:
+        if upload_live_ctx is not None:
+            upload_live_ctx.stop()
+
+    if json_output:
+        print(json.dumps({"import": result, "publish": pub_result}, indent=2))
+        if not pub_result.get("success"):
+            raise typer.Exit(code=1)
+        return
+
+    if pub_result.get("success"):
+        console.print("\n[bold green]Published successfully![/bold green]")
+        source_id_val = pub_result.get("source_id")
+        console.print(f"  [dim]Source ID:[/dim] [cyan]{source_id_val}[/cyan]")
+        console.print(f"  [dim]External DOI:[/dim] {metadata.get('doi', 'N/A')}")
+        console.print(f"  [dim]Service:[/dim] {resolved}")
+        if source_id_val:
+            cfg = GlobalConfig()
+            cfg.record_publish(source_id_val, pub_result.get("version"), resolved)
+            if no_watch:
+                console.print(f"  [dim]Watch:[/dim] mdf status --watch {source_id_val}")
+            else:
+                raise typer.Exit(
+                    code=_watch_submission(
+                        source_id_val,
+                        interval=5,
+                        timeout=1800,
+                        service=resolved,
+                        api_url=api_url,
+                        token=token,
+                        dev_user=dev_user,
+                        announce=True,
+                        stop_on_statuses={"pending_curation"},
+                    )
+                )
+    else:
+        require_success(pub_result, error_prefix="Publish failed")
+
+
 # Hidden alias: manifest top-level (now under config)
 from mdf_agent.cli.manifest_cmd import app as manifest_app
 app.add_typer(manifest_app, name="manifest", hidden=True)
