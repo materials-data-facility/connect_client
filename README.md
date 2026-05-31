@@ -86,8 +86,13 @@ mdf versions my_dataset_v1          # Version history table
 mdf status                          # Status of last published dataset
 mdf status my_dataset_v1            # Status of specific dataset
 
-mdf search "perovskite"             # Search all datasets and streams
+mdf search "perovskite"             # Keyword search across datasets and streams
 mdf search "XRD" --type streams     # Search only streams
+mdf search "battery cathodes" --semantic  # Vector search over title + description embeddings
+
+mdf related my_dataset_v1                   # Datasets sharing authors (ORCID-first)
+mdf related my_dataset_v1 --by similar      # Nearest neighbors over the embedding snapshot
+mdf related my_dataset_v1 --limit 5
 ```
 
 ### Curation
@@ -209,6 +214,21 @@ client.stream_close(stream["stream_id"], mint_doi=True)
 client.close()
 ```
 
+### Programmatic / CI authentication
+
+For scripts, notebooks, and CI pipelines you can skip interactive browser login by
+setting environment variables. The recommended approach is to register a **confidential
+client** at [developers.globus.org](https://developers.globus.org) and export the
+credentials:
+
+```bash
+export MDF_CLIENT_ID="your-client-uuid"
+export MDF_CLIENT_SECRET="your-client-secret"
+mdf publish --submit          # no browser required
+```
+
+Alternatively, pass a pre-existing access token via `MDF_CONNECT_TOKEN`.
+
 ### Auth resolution
 
 `BackendClient.authenticated()` resolves credentials in this order:
@@ -227,6 +247,91 @@ All HTTP requests automatically retry on transient errors:
 - **Connection errors**: 3 retries with backoff
 
 File uploads (`_https_put_file`) also retry on 502/503/504 and connection errors. SSL verification for the Globus HTTPS endpoint is configurable via `MDF_SSL_VERIFY` (default: `false`, as the Globus endpoint uses a private CA).
+
+## Semantic search and embeddings
+
+MDF generates OpenAI `text-embedding-3-small` vectors (1536-dim) over each dataset's title + description and stores them in DynamoDB. A periodic S3 snapshot (`Float32Array` binary + JSON sidecar) feeds both the backend `/search/semantic` endpoint and any frontend that wants to scan client-side. There's also a lightweight in-memory author index that powers `mdf related` — no embeddings required, ORCID matched first.
+
+### Usage
+
+```bash
+mdf search "perovskite photovoltaic stability" --semantic
+mdf related my_dataset_v1                  # Co-author lookup
+mdf related my_dataset_v1 --by similar     # Embedding nearest-neighbors
+```
+
+The `--by similar` path serves the dataset detail page's "you might also like" widget. It does no OpenAI call — the dataset's own vector is already in the cached snapshot, so it's a single cosine pass over the in-memory matrix. Frontends can also call `GET /datasets/{source_id}/related?by=similar&limit=5` directly.
+
+### Automatic on publish
+
+When a dataset is approved and published, the publish pipeline fires off a `generate_embedding` async job for the new version. If the embed call fails (OpenAI outage, quota), publish still succeeds — the next `rebuild-embeddings` will pick up the gap.
+
+Editing metadata via `mdf edit` or a curator approve with `metadata_updates` bumps `metadata_updated_at`, which makes the skip check treat the existing embedding as stale on the next rebuild.
+
+### Manual rebuild (curator-only)
+
+```bash
+# Check coverage, see current snapshot, spot any stale records
+mdf admin embedding-status --service staging
+
+# Dispatch a rebuild — returns immediately, work runs in the async worker
+mdf admin rebuild-embeddings --service staging --yes
+
+# Watch progress
+mdf admin embedding-status --service staging
+```
+
+What the rebuild does:
+
+1. Enqueues **one** dispatcher job (SQS) and returns — the endpoint never blocks on the scan.
+2. Async worker scans DynamoDB, skips records whose embedding already matches the current model and isn't stale, and fans out one `generate_embedding` job per pending record.
+3. Final `build_embedding_snapshot` job packs every vector into `s3://mdf-embeddings-<env>/embeddings/v1/index-<sha>.bin` + `.json`, then atomically swaps `current.json` to point at it. Content-hashed filenames mean browsers and the Lambda in-process cache can keep aggressive TTLs.
+
+Flags:
+
+```bash
+--force         # Re-embed every published dataset (use after a model switch)
+--limit N       # Cap OpenAI calls per run — good for phased backfills
+--no-snapshot   # Fill Dynamo only, skip the S3 publish
+```
+
+### Staleness detection
+
+Each embedded record carries `embedding_generated_at`; each metadata write stamps `metadata_updated_at`. `rebuild-embeddings` treats an embedding as stale whenever `embedding_generated_at < metadata_updated_at` (plus whenever `embedding_model` no longer matches `EMBEDDING_MODEL`). You do not need `--force` for normal edits — stale records are picked up automatically.
+
+### First-time deploy
+
+The embedding pipeline needs an OpenAI key and an S3 bucket. Deploy once with:
+
+```bash
+# 1. Stash the key in SSM (one time per environment)
+aws ssm put-parameter \
+  --name /mdf/staging/openai-api-key \
+  --value "sk-..." \
+  --type SecureString \
+  --overwrite
+
+# 2. Build + deploy — creates the mdf-embeddings-<env> bucket, IAM, env vars
+cd cs/aws
+sam build
+sam deploy \
+  --config-file samconfig.toml \
+  --config-env staging \
+  --parameter-overrides \
+    OpenAIApiKey=$(aws ssm get-parameter \
+      --name /mdf/staging/openai-api-key --with-decryption \
+      --query Parameter.Value --output text)
+
+# 3. Backfill any datasets that pre-date the feature
+mdf admin rebuild-embeddings --service staging --yes
+mdf admin embedding-status --service staging    # wait until with_embedding == published_total
+```
+
+Switching models later: update `EmbeddingModel` (and `EmbeddingDims` if changing size) in the SAM template, redeploy, then `mdf admin rebuild-embeddings` — records with the old model stamp get re-embedded automatically; same-model ones are skipped.
+
+### Frontend integration
+
+The snapshot bucket has CORS open for browser reads. If you front it with CloudFront, set `EmbeddingSnapshotPublicUrl=https://<distribution>` at deploy time; `POST /admin/embeddings/rebuild` then returns `public_urls.{bin,json,pointer}` in its response so the UI can fetch the blob directly. Query embedding is done server-side via `POST /embed` so the OpenAI key never ships to the browser.
 
 ## Connecting to the backend
 

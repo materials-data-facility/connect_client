@@ -537,6 +537,41 @@ class BackendClient:
         params = {"q": query, "type": search_type, "limit": str(limit)}
         return self._request("GET", "/search", params=params)
 
+    def search_semantic(self, query: str, limit: int = 20) -> Dict[str, Any]:
+        """Top-k semantic search over the embedding snapshot."""
+        params = {"q": query, "limit": str(limit)}
+        return self._request("GET", "/search/semantic", params=params)
+
+    def related_by_author(self, source_id: str, limit: int = 20) -> Dict[str, Any]:
+        """Datasets that share one or more authors with `source_id`."""
+        params = {"by": "author", "limit": str(limit)}
+        return self._request("GET", f"/datasets/{source_id}/related", params=params)
+
+    def similar_by_embedding(self, source_id: str, limit: int = 10) -> Dict[str, Any]:
+        """Datasets nearest to `source_id` by embedding cosine similarity."""
+        params = {"by": "similar", "limit": str(limit)}
+        return self._request("GET", f"/datasets/{source_id}/related", params=params)
+
+    def embedding_status(self) -> Dict[str, Any]:
+        """Curator-only: coverage + snapshot info for dataset embeddings."""
+        return self._request("GET", "/admin/embeddings/status")
+
+    def rebuild_embeddings(
+        self,
+        force: bool = False,
+        build_snapshot: bool = True,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Curator-only: generate missing embeddings and rebuild the S3 snapshot."""
+        payload: Dict[str, Any] = {"force": force, "build_snapshot": build_snapshot}
+        if limit is not None:
+            payload["limit"] = limit
+        return self._request("POST", "/admin/embeddings/rebuild", json_data=payload)
+
+    def rebuild_embedding_snapshot(self) -> Dict[str, Any]:
+        """Curator-only: rebuild just the S3 snapshot from existing embeddings."""
+        return self._request("POST", "/admin/embeddings/snapshot", json_data={})
+
     def stream_preview(
         self,
         stream_id: str,

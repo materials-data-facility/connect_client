@@ -76,6 +76,8 @@ def auth_ready(service: str, token: Optional[str] = None, dev_user: Optional[str
         return True
     if dev_user or os.environ.get("MDF_DEV_USER_ID"):
         return True
+    if os.environ.get("MDF_CLIENT_ID") and os.environ.get("MDF_CLIENT_SECRET"):
+        return True
     return is_logged_in(service_instance=normalized)
 
 
@@ -252,7 +254,7 @@ def run_preflight(
                 issues,
                 "blocking",
                 f"Authentication is not ready for service '{service}'.",
-                f"Run `mdf login --service {service}` or set MDF_CONNECT_TOKEN.",
+                f"Run `mdf login --service {service}`, set MDF_CONNECT_TOKEN, or set MDF_CLIENT_ID + MDF_CLIENT_SECRET for CI/automation.",
             )
         if service_target:
             try:

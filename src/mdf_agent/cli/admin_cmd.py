@@ -291,3 +291,142 @@ def stats(
         console.print(f"  [dim]Total downloads:[/dim] {access.get('download_count', 0)}")
 
     console.print()
+
+
+@app.command("embedding-status")
+def embedding_status(
+    json_output: bool = typer.Option(False, "--json", help="JSON output"),
+    service: Optional[str] = typer.Option(None, "--service", "-s", help="Service instance"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API URL"),
+    token: Optional[str] = typer.Option(None, "--token", help="Globus access token"),
+    dev_user: Optional[str] = typer.Option(None, "--dev-user", help="Dev-mode user id"),
+):
+    """Show embedding coverage and snapshot info (curator-only).
+
+    Examples:
+        mdf admin embedding-status
+    """
+    resolved = resolve_service(service)
+    client = BackendClient.authenticated(
+        base_url=api_url,
+        token=token,
+        service_instance=resolved,
+        dev_user_id=dev_user,
+    )
+    with api_spinner("Loading embedding status..."):
+        result = client.embedding_status()
+    client.close()
+
+    if json_output:
+        print(json.dumps(result, indent=2))
+        if not result.get("success"):
+            raise typer.Exit(code=1)
+        return
+
+    if not result.get("success"):
+        require_success(result, error_prefix="Embedding status failed")
+
+    console.print("\n[bold]Embedding coverage[/bold]")
+    console.print(f"  [dim]Current model:[/dim] {result.get('current_model')}")
+    console.print(f"  [dim]Published:[/dim] {result.get('published_total', 0)}")
+    console.print(f"  [dim]With embedding:[/dim] {result.get('with_embedding', 0)}")
+    console.print(f"  [dim]Missing:[/dim] {result.get('without_embedding', 0)}")
+    stale = result.get("stale") or 0
+    if stale:
+        console.print(f"  [yellow]Stale (metadata edited after embedding):[/yellow] {stale}")
+
+    by_model = result.get("by_model") or {}
+    if by_model:
+        console.print("\n  [dim]By model:[/dim]")
+        for model, count in by_model.items():
+            console.print(f"    {model}: {count}")
+
+    snapshot = result.get("snapshot")
+    if snapshot:
+        console.print("\n[bold]Current snapshot[/bold]")
+        console.print(f"  [dim]Built at:[/dim] {snapshot.get('built_at')}")
+        console.print(f"  [dim]Count / dims:[/dim] {snapshot.get('count')} / {snapshot.get('dims')}")
+        console.print(f"  [dim]Primary model:[/dim] {snapshot.get('model')}")
+        console.print(f"  [dim]sha:[/dim] {snapshot.get('sha')}")
+    else:
+        console.print("\n[yellow]No snapshot built yet.[/yellow] "
+                      "Run `mdf admin rebuild-embeddings` to create one.")
+    console.print()
+
+
+@app.command("rebuild-embeddings")
+def rebuild_embeddings(
+    force: bool = typer.Option(
+        False, "--force", help="Re-embed records that already have a vector"
+    ),
+    no_snapshot: bool = typer.Option(
+        False, "--no-snapshot", help="Skip rebuilding the S3 snapshot"
+    ),
+    limit: Optional[int] = typer.Option(
+        None, "--limit", help="Max records to embed in this run"
+    ),
+    yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompt"),
+    json_output: bool = typer.Option(False, "--json", help="JSON output"),
+    service: Optional[str] = typer.Option(None, "--service", "-s", help="Service instance"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API URL"),
+    token: Optional[str] = typer.Option(None, "--token", help="Globus access token"),
+    dev_user: Optional[str] = typer.Option(None, "--dev-user", help="Dev-mode user id"),
+):
+    """Generate missing dataset embeddings and rebuild the semantic-search snapshot.
+
+    Examples:
+        mdf admin rebuild-embeddings
+        mdf admin rebuild-embeddings --force --limit 500
+        mdf admin rebuild-embeddings --no-snapshot   # fill embeddings, skip S3 publish
+    """
+    if not yes and sys.stdin.isatty():
+        msg = "Rebuild embeddings for all published datasets lacking them?"
+        if force:
+            msg = "Re-embed ALL published datasets (--force)? This calls OpenAI for each."
+        if not typer.confirm(msg, default=False):
+            raise typer.Exit(code=1)
+
+    resolved = resolve_service(service)
+    client = BackendClient.authenticated(
+        base_url=api_url,
+        token=token,
+        service_instance=resolved,
+        dev_user_id=dev_user,
+    )
+    with api_spinner("Enqueueing embedding jobs..."):
+        result = client.rebuild_embeddings(
+            force=force, build_snapshot=not no_snapshot, limit=limit
+        )
+    client.close()
+
+    if json_output:
+        print(json.dumps(result, indent=2))
+        if not result.get("success"):
+            raise typer.Exit(code=1)
+        return
+
+    if not result.get("success"):
+        require_success(result, error_prefix="Rebuild failed")
+
+    console.print("\n[bold green]Rebuild dispatched[/bold green]")
+    console.print(f"  [dim]Model:[/dim] {result.get('model')}")
+    if result.get("force"):
+        console.print("  [dim]Mode:[/dim] force (re-embed everything)")
+    if result.get("limit"):
+        console.print(f"  [dim]Limit:[/dim] {result.get('limit')}")
+    console.print(
+        f"  [dim]Build snapshot after:[/dim] "
+        f"{'yes' if result.get('build_snapshot', True) else 'no'}"
+    )
+
+    dispatch = result.get("dispatch_job") or {}
+    if dispatch.get("message_id"):
+        console.print(f"  [dim]SQS message id:[/dim] {dispatch['message_id']}")
+    elif dispatch.get("job_id") is not None:
+        console.print(f"  [dim]Job id:[/dim] {dispatch['job_id']}")
+
+    console.print(
+        "\n[dim]Scan + per-dataset fan-out runs in the async worker. "
+        "Poll:[/dim] [cyan]mdf admin embedding-status[/cyan]"
+    )
+    console.print()

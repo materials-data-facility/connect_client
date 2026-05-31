@@ -117,6 +117,8 @@ def main_callback(ctx: typer.Context):
             '  [cyan]mdf search "perovskite"[/cyan]   Find datasets\n'
             "  [cyan]mdf login[/cyan]                 Authenticate with Globus\n"
             "\n"
+            "For scripts/CI: set [cyan]MDF_CLIENT_ID[/cyan] + [cyan]MDF_CLIENT_SECRET[/cyan]\n"
+            "\n"
             "Run [bold]mdf --help[/bold] for all commands.",
             border_style="blue",
         ))
@@ -545,7 +547,13 @@ def login(
     service: Optional[str] = typer.Option(None, "--service", "-s", help="Service instance (staging/prod/dev)"),
     token: Optional[str] = typer.Option(None, "--token", help="Use an explicit access token"),
 ):
-    """Authenticate with Globus."""
+    """Authenticate with Globus.
+
+    For scripts and CI, you can skip interactive login entirely:
+
+      MDF_CLIENT_ID + MDF_CLIENT_SECRET   Globus confidential client credentials
+      MDF_CONNECT_TOKEN                   Pre-existing access token
+    """
     from mdf_agent.auth.globus import (
         DEFAULT_TOKEN_PATH,
         DATA_MDF_SCOPE,
@@ -614,14 +622,29 @@ def status(
 
         cached = is_logged_in(service_instance=resolved)
         env_token = bool(os.environ.get("MDF_CONNECT_TOKEN"))
-        status_str = "authenticated" if (cached or env_token) else "not authenticated"
+        env_client = bool(
+            os.environ.get("MDF_CLIENT_ID") and os.environ.get("MDF_CLIENT_SECRET")
+        )
+
+        if env_client:
+            method = "confidential client (MDF_CLIENT_ID)"
+        elif env_token:
+            method = "environment token (MDF_CONNECT_TOKEN)"
+        elif cached:
+            method = "cached Globus login"
+        else:
+            method = None
+
+        status_str = "authenticated" if method else "not authenticated"
 
         result = {
             "success": True,
             "service": resolved,
             "status": status_str,
+            "method": method,
             "token_store": str(DEFAULT_TOKEN_PATH),
             "env_token_set": env_token,
+            "env_client_set": env_client,
         }
 
         if json_output:
@@ -630,9 +653,13 @@ def status(
 
         console.print(f"[bold]Service:[/bold] {resolved}")
         console.print(f"[bold]Status:[/bold] {status_str}")
+        if method:
+            console.print(f"[bold]Method:[/bold] {method}")
         console.print(f"[bold]Token store:[/bold] {DEFAULT_TOKEN_PATH}")
         if env_token:
             console.print("[dim]MDF_CONNECT_TOKEN is set in environment[/dim]")
+        if env_client:
+            console.print("[dim]MDF_CLIENT_ID + MDF_CLIENT_SECRET are set in environment[/dim]")
         return
 
     lookup_id = source_id
@@ -1190,7 +1217,13 @@ def search(
     query: str = typer.Argument(..., help="Search query"),
     search_type: str = typer.Option("all", "--type", "-t", help="all, datasets, or streams"),
     limit: int = typer.Option(20, "--limit", "-n", help="Max results"),
+    semantic: bool = typer.Option(
+        False,
+        "--semantic",
+        help="Use vector semantic search (title + description embeddings). Datasets only.",
+    ),
     json_output: bool = typer.Option(False, "--json", help="JSON output"),
+    brief: bool = typer.Option(False, "--brief", "-b", help="Minimal JSON: title, authors, doi (requires --json)"),
     service: Optional[str] = typer.Option(None, "--service", "-s", help="Service instance (staging/prod/dev/local)"),
     token: Optional[str] = typer.Option(None, "--token", help="Globus access token"),
     dev_user: Optional[str] = typer.Option(None, "--dev-user", help="Dev-mode user id (X-User-Id)"),
@@ -1202,6 +1235,8 @@ def search(
         mdf search "perovskite"
         mdf search "XRD" --type streams
         mdf search "iron oxide" --limit 5
+        mdf search "perovskite" --json --brief
+        mdf search "battery cathode materials" --semantic
     """
     resolved = resolve_service(service)
     resolved_token = token or os.environ.get("MDF_CONNECT_TOKEN")
@@ -1216,12 +1251,37 @@ def search(
     else:
         client = BackendClient(base_url=api_url or _api_url_for_service(resolved))
 
-    with api_spinner("Searching..."):
-        result = client.search(query, search_type=search_type, limit=limit)
+    with api_spinner("Searching (semantic)..." if semantic else "Searching..."):
+        if semantic:
+            result = client.search_semantic(query, limit=limit)
+            if not result.get("available", True):
+                reason = result.get("reason") or "Semantic search unavailable"
+                if json_output:
+                    print(json.dumps(result, indent=2))
+                else:
+                    console.print(f"[yellow]Semantic search unavailable:[/yellow] {reason}")
+                client.close()
+                return
+            # Normalize shape so downstream rendering matches keyword search
+            result.setdefault("query", query)
+            result.setdefault("total", len(result.get("results") or []))
+        else:
+            result = client.search(query, search_type=search_type, limit=limit)
     client.close()
 
     if json_output:
-        print(json.dumps(result, indent=2))
+        if brief:
+            items = []
+            for item in result.get("results", []):
+                entry = {
+                    "title": item.get("title", ""),
+                    "authors": item.get("authors", []),
+                    "doi": item.get("doi", ""),
+                }
+                items.append(entry)
+            print(json.dumps(items, indent=2))
+        else:
+            print(json.dumps(result, indent=2))
         return
 
     if result.get("results"):
@@ -1232,9 +1292,9 @@ def search(
         table.add_column("#", style="dim", width=3)
         table.add_column("Type", width=8)
         table.add_column("Title", max_width=40)
-        table.add_column("ID", no_wrap=True)
+        table.add_column("ID", max_width=28, no_wrap=True)
         table.add_column("Status", style="dim", no_wrap=True)
-        table.add_column("DOI", style="dim")
+        table.add_column("DOI", style="dim", max_width=24)
 
         for i, item in enumerate(result["results"], 1):
             if item.get("type") == "dataset":
@@ -1334,7 +1394,7 @@ def list_datasets(
 
     console.print(f"\n[bold]Your datasets ({len(filtered_submissions)}):[/bold]\n")
     table = Table(show_header=True, header_style="bold")
-    table.add_column("Source ID", no_wrap=True)
+    table.add_column("Source ID", max_width=28, no_wrap=True)
     table.add_column("Title", max_width=40)
     table.add_column("Version", style="dim", no_wrap=True)
     table.add_column("Status", no_wrap=True)
@@ -1350,6 +1410,117 @@ def list_datasets(
             sub.get("version", ""),
             status_str,
             updated,
+        )
+    console.print(table)
+
+
+@app.command("related", rich_help_panel=PANEL_EXPLORE)
+def related(
+    source_id: str = typer.Argument(..., help="Source ID (or DOI) of the dataset"),
+    by: str = typer.Option("author", "--by", help="Relation type: author | similar"),
+    limit: int = typer.Option(20, "--limit", "-n", help="Max results"),
+    json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
+    service: Optional[str] = typer.Option(None, "--service", "-s", help="Service instance"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API URL"),
+    token: Optional[str] = typer.Option(None, "--token", help="Globus access token"),
+    dev_user: Optional[str] = typer.Option(None, "--dev-user", help="Dev-mode user id"),
+):
+    """List datasets related to a given dataset.
+
+    - `--by author` (default): datasets sharing at least one author (ORCID-first,
+      falls back to normalized name).
+    - `--by similar`: nearest neighbors over the dataset embedding snapshot
+      (title + description). Requires a built embedding snapshot.
+
+    Examples:
+        mdf related my_dataset_v1
+        mdf related 10.18126/xxxx --by similar --limit 10
+    """
+    if by not in ("author", "similar"):
+        console.print(f"[red]Unsupported relation type:[/red] {by}")
+        raise typer.Exit(code=2)
+
+    resolved = resolve_service(service)
+    client = BackendClient.authenticated(
+        base_url=api_url,
+        token=token,
+        service_instance=resolved,
+        dev_user_id=dev_user,
+    )
+    resolved_id = _resolve_identifier_with_notice(client, source_id)
+
+    if by == "similar":
+        spinner_text = "Finding similar datasets..."
+    else:
+        spinner_text = "Finding related datasets..."
+
+    with api_spinner(spinner_text):
+        if by == "similar":
+            result = client.similar_by_embedding(resolved_id, limit=limit)
+        else:
+            result = client.related_by_author(resolved_id, limit=limit)
+    client.close()
+
+    if json_output:
+        print(json.dumps(result, indent=2))
+        return
+
+    if by == "similar" and result.get("available") is False:
+        reason = result.get("reason") or "Embedding snapshot unavailable."
+        console.print(f"\n[yellow]{reason}[/yellow]")
+        return
+
+    results = result.get("results", [])
+    if not results:
+        if by == "similar" and result.get("reason"):
+            console.print(f"\n[yellow]{result['reason']}[/yellow]")
+        else:
+            console.print(
+                f"\n[dim]No related datasets found for[/dim] [cyan]{resolved_id}[/cyan]"
+            )
+        return
+
+    if by == "similar":
+        console.print(
+            f"\n[bold]{len(results)} similar dataset(s)[/bold] "
+            f"to [cyan]{resolved_id}[/cyan] (by embedding)\n"
+        )
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("Source ID", max_width=28, no_wrap=True)
+        table.add_column("Title", max_width=40)
+        table.add_column("Score", style="dim", justify="right")
+        table.add_column("Year", style="dim", no_wrap=True)
+        table.add_column("DOI", style="dim", max_width=24)
+        for row in results:
+            score = row.get("score")
+            score_str = f"{float(score):.3f}" if score is not None else ""
+            table.add_row(
+                row.get("source_id", ""),
+                row.get("title") or "Untitled",
+                score_str,
+                str(row.get("publication_year") or ""),
+                row.get("doi") or "",
+            )
+        console.print(table)
+        return
+
+    console.print(
+        f"\n[bold]{len(results)} related dataset(s)[/bold] "
+        f"sharing authors with [cyan]{resolved_id}[/cyan]\n"
+    )
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Source ID", max_width=28, no_wrap=True)
+    table.add_column("Title", max_width=40)
+    table.add_column("Shared", style="dim", justify="right")
+    table.add_column("Year", style="dim", no_wrap=True)
+    table.add_column("DOI", style="dim", max_width=24)
+    for row in results:
+        table.add_row(
+            row.get("source_id", ""),
+            row.get("title") or "Untitled",
+            str(row.get("shared_authors") or ""),
+            str(row.get("publication_year") or ""),
+            row.get("doi") or "",
         )
     console.print(table)
 
