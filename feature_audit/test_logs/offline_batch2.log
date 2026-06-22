@@ -1,0 +1,97 @@
+################ $ mdf manifest init --title XRD Band Gaps --author Doe, Jane --author Smith, Al --description Test dataset --keyword XRD --year 2026
+Created mdf.yaml in .
+  Title: XRD Band Gaps
+  Authors: Doe, Jane, Smith, Al
+  Keywords: XRD
+  -> exit 0
+
+----- mdf.yaml -----
+title: XRD Band Gaps
+authors:
+- Doe, Jane
+- Smith, Al
+description: Test dataset
+publication_year: 2026
+subjects:
+- XRD
+data_sources: []
+
+################ $ mdf manifest inspect
+
+╭──────────────────────────────────────────── mdf.yaml ────────────────────────────────────────────╮
+│ XRD Band Gaps                                                                                    │
+│ Test dataset                                                                                     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+┌──────────────────┬───────────────────────────────┐
+│  Authors         │  Doe, Jane, Smith, Al         │
+│  Publisher       │  None                         │
+│  Organization    │  None                         │
+│  Keywords        │  XRD                          │
+│  Data sources    │  Auto-scan current directory  │
+└──────────────────┴───────────────────────────────┘
+
+Resolved sources
+
+┏━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━┳━━━━━━━┓
+┃ Source ┃ Kind      ┃ Files ┃ Bytes ┃
+┡━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━╇━━━━━━━┩
+│ .      │ auto-scan │     4 │   228 │
+└────────┴───────────┴───────┴───────┘
+
+Preflight notes
+  info No data_sources set; publish/update will auto-include visible files from the current 
+directory.
+  -> exit 0
+
+################ $ mdf manifest discover samples.csv meta.json params.yaml
+Extracted metadata saved to mdf.yaml
+  mdf
+  -> exit 0
+
+################ $ mdf manifest discover --preview samples.csv
+Preview only - extracted metadata:
+{                                                                                                   
+  "mdf": {                                                                                          
+    "table_schema": {                                                                               
+      "file": "samples.csv",                                                                        
+      "columns": [                                                                                  
+        {                                                                                           
+          "name": "sample_id"                                                                       
+        },                                                                                          
+        {                                                                                           
+          "name": "temperature_K"                                                                   
+        },                                                                                          
+        {                                                                                           
+          "name": "band_gap_eV"                                                                     
+        },                                                                                          
+        {                                                                                           
+          "name": "formula"                                                                         
+        }                                                                                           
+      ],                                                                                            
+      "row_count": 3                                                                                
+    }                                                                                               
+  }                                                                                                 
+}                                                                                                   
+  -> exit 0
+
+################ $ mdf validate
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Validation                                                                                       │
+│ Service: staging                                                                                 │
+│ Files: 4                                                                                         │
+│ Bytes: 228.0 B                                                                                   │
+│ Target: default service URL                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━┓
+┃ Source ┃ Kind      ┃ Files ┃   Bytes ┃
+┡━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━┩
+│ .      │ auto-scan │     4 │ 228.0 B │
+└────────┴───────────┴───────┴─────────┘
+
+- No data_sources set; publish/update will auto-include visible files from the current directory.
+    Add data_sources to mdf.yaml if you want a narrower upload scope.
+
+Validation passed
+  -> exit 0
+

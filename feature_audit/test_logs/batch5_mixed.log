@@ -1,0 +1,145 @@
+################ $ mdf publish --dry-run
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Publish preflight                                                                                │
+│ Service: staging                                                                                 │
+│ Files: 4                                                                                         │
+│ Bytes: 228.0 B                                                                                   │
+│ Target: https://hjccjf3eqg.execute-api.us-east-1.amazonaws.com/staging                           │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━━━┓
+┃ Source ┃ Kind  ┃ Files ┃   Bytes ┃
+┡━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━━━┩
+│ .      │ local │     4 │ 228.0 B │
+└────────┴───────┴───────┴─────────┘
+
+- 1 hidden file(s) will be skipped under .
+
+Dry run - would submit:
+Target: https://hjccjf3eqg.execute-api.us-east-1.amazonaws.com/staging (staging)
+{                                                                                                   
+  "title": "XRD Band Gaps",                                                                         
+  "authors": [                                                                                      
+    {                                                                                               
+      "name": "Doe, Jane"                                                                           
+    },                                                                                              
+    {                                                                                               
+      "name": "Smith, Al"                                                                           
+    }                                                                                               
+  ],                                                                                                
+  "description": "Test dataset",                                                                    
+  "keywords": [                                                                                     
+    "XRD"                                                                                           
+  ],                                                                                                
+  "publisher": "Materials Data Facility",                                                           
+  "publication_year": 2026,                                                                         
+  "resource_type": "Dataset",                                                                       
+  "data_sources": [                                                                                 
+    "/private/tmp/mdf_test/data"                                                                    
+  ],                                                                                                
+  "test": false,                                                                                    
+  "update": false,                                                                                  
+  "update_metadata_only": false                                                                     
+}                                                                                                   
+
+Ready to publish. Run:
+  mdf publish --submit
+  -> exit 0
+
+################ $ mdf publish ./
+Direct mode requires --title
+Example: mdf publish ./data/ --title "My Dataset" --author "Jane"
+  -> exit 1
+
+################ $ mdf publish ./ --title Only Title
+Direct mode requires --author
+Example: mdf publish ./data/ --title "My Dataset" --author "Jane"
+  -> exit 1
+
+################ $ mdf publish ./ --title Direct DS --author Doe, Jane --dry-run
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Publish preflight                                                                                │
+│ Service: staging                                                                                 │
+│ Files: 4                                                                                         │
+│ Bytes: 228.0 B                                                                                   │
+│ Target: https://hjccjf3eqg.execute-api.us-east-1.amazonaws.com/staging                           │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━━━┓
+┃ Source ┃ Kind  ┃ Files ┃   Bytes ┃
+┡━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━━━┩
+│ ./     │ local │     4 │ 228.0 B │
+└────────┴───────┴───────┴─────────┘
+
+- 1 hidden file(s) will be skipped under ./
+
+Dry run - would submit:
+Target: https://hjccjf3eqg.execute-api.us-east-1.amazonaws.com/staging (staging)
+{                                                                                                   
+  "title": "Direct DS",                                                                             
+  "authors": [                                                                                      
+    {                                                                                               
+      "name": "Doe, Jane"                                                                           
+    }                                                                                               
+  ],                                                                                                
+  "publisher": "Materials Data Facility",                                                           
+  "resource_type": "Dataset",                                                                       
+  "data_sources": [                                                                                 
+    "/private/tmp/mdf_test/data"                                                                    
+  ],                                                                                                
+  "test": false,                                                                                    
+  "update": false,                                                                                  
+  "update_metadata_only": false                                                                     
+}                                                                                                   
+
+Ready to publish. Run:
+  mdf publish --submit
+  -> exit 0
+
+################ $ mdf dataset open mobility_5d_v1.1 --url
+Opening browser for Globus authentication...
+
+Please authenticate with Globus here:
+-------------------------------------
+https://auth.globus.org/v2/oauth2/authorize?client_id=074cebcc-19ad-4332-bbf2-78402291b659&redirect_uri=https%3A%2F%2Fauth.globus.org%2Fv2%2Fweb%2Fauth-code&scope=openid+https%3A%2F%2Fauth.globus.org%2Fscopes%2F82f1b5c6-6e9b-11e5-ba47-22000b92c6ec%2Fhttps+urn%3Aglobus%3Aauth%3Ascope%3Agroups.api.globus.org%3Aview_my_groups_and_memberships+urn%3Aglobus%3Aauth%3Ascope%3Atransfer.api.globus.org%3Aall+https%3A%2F%2Fauth.globus.org%2Fscopes%2F4d5f8e8b-a61d-40d8-bb58-5a3f5d1d200a%2Fconnect&state=_default&response_type=code&code_challenge=PQjWFNDpokfxxG-A6osxUZnm50A4faKjjiuf8krcKGM&code_challenge_method=S256&access_type=offline&prefill_named_grant=MDF_Agent+on+blaisziks-MacBook-Air
+-------------------------------------
+
+Enter the resulting Authorization Code here: 
+Aborted.
+  -> exit 1
+
+################ $ mdf dataset diff mobility_5d_v1.1
+Usage: mdf dataset diff [OPTIONS] SOURCE_ID
+Try 'mdf dataset diff --help' for help.
+   Error                                                                                            
+  Missing option '--from'.                                                                          
+                                                                                                    
+  -> exit 2
+
+################ $ mdf search iron --service bogus --limit 1
+╭─────────────────────────────── Traceback (most recent call last) ────────────────────────────────╮
+│ /Users/blaiszik/Desktop/git/mdf_client/src/mdf_agent/cli/main.py:1252 in search                  │
+│                                                                                                  │
+│   1249 │   │   │   dev_user_id=dev_user,                                                         │
+│   1250 │   │   )                                                                                 │
+│   1251 │   else:                                                                                 │
+│ ❱ 1252 │   │   client = BackendClient(base_url=api_url or _api_url_for_service(resolved))        │
+│   1253 │                                                                                         │
+│   1254 │   with api_spinner("Searching (semantic)..." if semantic else "Searching..."):          │
+│   1255 │   │   if semantic:                                                                      │
+│                                                                                                  │
+│ /Users/blaiszik/Desktop/git/mdf_client/src/mdf_agent/core/backend_client.py:30 in                │
+│ _api_url_for_service                                                                             │
+│                                                                                                  │
+│    27 │   │   normalized = "dev"                                                                 │
+│    28 │   url = _V2_API_URLS.get(normalized, "")                                                 │
+│    29 │   if not url:                                                                            │
+│ ❱  30 │   │   raise ValueError(                                                                  │
+│    31 │   │   │   f"No API URL configured for service '{normalized}'. "                          │
+│    32 │   │   │   f"Use --api-url or set MDF_API_URL environment variable."                      │
+│    33 │   │   )                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+ValueError: No API URL configured for service 'bogus'. Use --api-url or set MDF_API_URL environment 
+variable.
+  -> exit 1
+

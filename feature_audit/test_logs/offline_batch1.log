@@ -1,0 +1,37 @@
+== mdf --version ==
+Usage: mdf [OPTIONS] COMMAND [ARGS]...
+Try 'mdf --help' for help.
+   Error                                                                                            
+  No such option: --version                                                                         
+                                                                                                    
+  exit 2
+################ $ config path 
+/Users/blaiszik/.config/mdf_agent/config.json
+  -> exit 0
+
+################ $ config show 
+No configuration set yet.
+Config file: /Users/blaiszik/.config/mdf_agent/config.json
+  -> exit 0
+
+################ $ config set defaults.service staging 
+Set defaults.service = staging
+  -> exit 0
+
+################ $ config get defaults.service 
+staging
+  -> exit 0
+
+################ $ config set user.email not-an-email 
+Warning: 'not-an-email' doesn't look like a valid email address
+Set user.email = not-an-email
+  -> exit 0
+
+################ $ config set user.email me@example.com 
+Set user.email = me@example.com
+  -> exit 0
+
+################ $ config get user.email 
+me@example.com
+  -> exit 0
+

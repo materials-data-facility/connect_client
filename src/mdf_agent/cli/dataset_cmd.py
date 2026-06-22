@@ -14,6 +14,7 @@ from mdf_agent.cli.formatting import (
     api_spinner,
     console,
     format_status_badge,
+    read_client,
     require_success,
 )
 from mdf_agent.cli.preflight import resolve_dataset_identifier
@@ -82,12 +83,7 @@ def cite(
     from rich.panel import Panel
 
     resolved = resolve_service(service)
-    client = BackendClient.authenticated(
-        base_url=api_url,
-        token=token,
-        service_instance=resolved,
-        dev_user_id=dev_user,
-    )
+    client = read_client(api_url=api_url, token=token, service=resolved, dev_user=dev_user)
     source_id = _resolve_identifier_with_notice(client, source_id)
     with api_spinner("Fetching citation..."):
         result = client.get_citation(source_id, format=format, version=version)
@@ -136,12 +132,7 @@ def open_dataset(
         mdf dataset open my_dataset_v1 --url
     """
     resolved = resolve_service(service)
-    client = BackendClient.authenticated(
-        base_url=api_url,
-        token=token,
-        service_instance=resolved,
-        dev_user_id=dev_user,
-    )
+    client = read_client(api_url=api_url, token=token, service=resolved, dev_user=dev_user)
     source_id = _resolve_identifier_with_notice(client, source_id)
     with api_spinner("Loading dataset..."):
         result = client.get_card(source_id, version=version)
@@ -183,12 +174,7 @@ def preview(
     from rich.table import Table
 
     resolved = resolve_service(service)
-    client = BackendClient.authenticated(
-        base_url=api_url,
-        token=token,
-        service_instance=resolved,
-        dev_user_id=dev_user,
-    )
+    client = read_client(api_url=api_url, token=token, service=resolved, dev_user=dev_user)
     source_id = _resolve_identifier_with_notice(client, source_id)
 
     if sample:
@@ -271,12 +257,7 @@ def versions(
     from rich.table import Table
 
     resolved = resolve_service(service)
-    client = BackendClient.authenticated(
-        base_url=api_url,
-        token=token,
-        service_instance=resolved,
-        dev_user_id=dev_user,
-    )
+    client = read_client(api_url=api_url, token=token, service=resolved, dev_user=dev_user)
     source_id = _resolve_identifier_with_notice(client, source_id)
     with api_spinner("Loading versions..."):
         result = client.versions(source_id, limit=limit, offset=offset)
@@ -343,12 +324,7 @@ def diff(
     from rich.table import Table
 
     resolved = resolve_service(service)
-    client = BackendClient.authenticated(
-        base_url=api_url,
-        token=token,
-        service_instance=resolved,
-        dev_user_id=dev_user,
-    )
+    client = read_client(api_url=api_url, token=token, service=resolved, dev_user=dev_user)
     source_id = _resolve_identifier_with_notice(client, source_id)
     with api_spinner("Loading diff..."):
         result = client.version_diff(source_id, from_version, to_version)

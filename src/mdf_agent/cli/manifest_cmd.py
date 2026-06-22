@@ -23,6 +23,30 @@ from mdf_agent.cli.preflight import suggest_data_sources
 
 console = Console()
 
+
+def _summarize_extracted(extracted: dict) -> None:
+    """Print a human-readable summary of discovered metadata."""
+    mdf = extracted.get("mdf", extracted) if isinstance(extracted, dict) else {}
+    schema = mdf.get("table_schema") if isinstance(mdf, dict) else None
+    printed = False
+    if isinstance(schema, dict):
+        cols = schema.get("columns") or []
+        fname = schema.get("file", "table")
+        rows = schema.get("row_count")
+        detail = f"{len(cols)} column(s)"
+        if rows is not None:
+            detail += f", {rows} row(s)"
+        console.print(f"  [dim]{fname}:[/dim] {detail}")
+        if cols:
+            names = ", ".join(str(c.get("name", c)) for c in cols[:8])
+            more = "" if len(cols) <= 8 else f" (+{len(cols) - 8} more)"
+            console.print(f"    [dim]columns:[/dim] {names}{more}")
+        printed = True
+    if not printed:
+        for key in extracted:
+            console.print(f"  [dim]{key}[/dim]")
+
+
 app = typer.Typer(
     help="Manage mdf.yaml manifest files",
     no_args_is_help=True,
@@ -174,8 +198,7 @@ def manifest_discover(
             console.print(Syntax(json.dumps(extracted, indent=2), "json", theme="monokai"))
         else:
             console.print("[green]Extracted metadata saved to mdf.yaml[/green]")
-            for key in extracted:
-                console.print(f"  [dim]{key}[/dim]")
+            _summarize_extracted(extracted)
     else:
         console.print("[yellow]No metadata extracted from the provided files[/yellow]")
 

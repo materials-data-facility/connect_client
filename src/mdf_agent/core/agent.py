@@ -1088,27 +1088,40 @@ class MDFAgent:
                 return result
 
             if selected_method == "zip":
-                if stage_callback:
-                    stage_callback("downloading_archive", plan)
-                try:
-                    result = self._clone_via_zip(
-                        plan["download_url"],
-                        plan["data_token"],
-                        plan["out"],
-                        plan["card"],
-                        progress_callback=progress_callback,
-                        stage_callback=stage_callback,
-                    )
-                    result["resolved_source_id"] = plan["resolved_source_id"]
-                    return result
-                except zipfile.BadZipFile:
+                download_url = plan.get("download_url", "") or ""
+                if not download_url.lower().startswith(("http://", "https://")):
+                    # The archive URL is not HTTPS-fetchable (e.g. a globus:// URI).
+                    # Don't hand it to httpx (which raises UnsupportedProtocol) —
+                    # fall back to the file-by-file HTTPS path below.
                     print(
-                        "Note: download_url did not return a zip archive — "
+                        "Note: dataset archive is not HTTPS-downloadable — "
                         "falling back to file-by-file HTTPS download.",
                         file=sys.stderr,
                     )
                     if stage_callback:
                         stage_callback("falling_back_to_https", plan)
+                else:
+                    if stage_callback:
+                        stage_callback("downloading_archive", plan)
+                    try:
+                        result = self._clone_via_zip(
+                            download_url,
+                            plan["data_token"],
+                            plan["out"],
+                            plan["card"],
+                            progress_callback=progress_callback,
+                            stage_callback=stage_callback,
+                        )
+                        result["resolved_source_id"] = plan["resolved_source_id"]
+                        return result
+                    except zipfile.BadZipFile:
+                        print(
+                            "Note: download_url did not return a zip archive — "
+                            "falling back to file-by-file HTTPS download.",
+                            file=sys.stderr,
+                        )
+                        if stage_callback:
+                            stage_callback("falling_back_to_https", plan)
 
             files = plan.get("files")
             if not files:
@@ -1198,6 +1211,13 @@ class MDFAgent:
             return {"success": False, "error": f"Dataset '{source_id}' not found"}
 
         download_url = card.get("download_url")
+        # The backend hands back the archive as a globus:// URI; httpx can only
+        # fetch http(s). Convert NCSA-collection URIs to their HTTPS form so the
+        # zip path works (non-NCSA URIs stay as-is and fall back to file-by-file).
+        if download_url and download_url.startswith("globus://"):
+            https_archive = _globus_uri_to_https(download_url)
+            if https_archive:
+                download_url = https_archive
         data_sources = card.get("data_sources", [])
         data_token = client._globus_data_token or ""
         transfer_token = client._globus_transfer_token or ""
@@ -1274,6 +1294,14 @@ class MDFAgent:
                 members = zf.namelist()
                 if stage_callback:
                     stage_callback("extracting_archive", {"files_count": len(members), "path": str(out)})
+                # Guard against Zip-Slip: reject members that resolve outside `out`.
+                out_resolved = out.resolve()
+                for member in members:
+                    target = (out / member).resolve()
+                    if target != out_resolved and out_resolved not in target.parents:
+                        raise RuntimeError(
+                            f"Refusing to extract unsafe path '{member}' outside the output directory"
+                        )
                 zf.extractall(out)
                 file_count = len(members)
         finally:

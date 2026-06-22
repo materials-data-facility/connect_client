@@ -41,8 +41,11 @@ class TabularExtractor(BaseExtractor):
     @staticmethod
     def _extract_csv(path: Path) -> Dict:
         try:
-            with path.open("r", encoding="utf-8") as handle:
-                reader = csv.reader(handle)
+            with path.open("r", encoding="utf-8", newline="") as handle:
+                # Tab-separated files need a tab delimiter, otherwise the whole
+                # header row collapses into a single mis-named column.
+                delimiter = "\t" if path.suffix.lower() == ".tsv" else ","
+                reader = csv.reader(handle, delimiter=delimiter)
                 headers = next(reader, [])
                 row_count = sum(1 for _ in reader)
         except Exception:

@@ -11,7 +11,7 @@ import httpx
 _V2_API_URLS = {
     "prod": "https://api.materialsdatafacility.org",
     "dev": "https://api-dev.materialsdatafacility.org",
-    "staging": "https://hjccjf3eqg.execute-api.us-east-1.amazonaws.com/staging",
+    "staging": "https://3xicgt0g7l.execute-api.us-east-1.amazonaws.com/staging",
     "local": "http://127.0.0.1:8080",
 }
 

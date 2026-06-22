@@ -110,13 +110,14 @@ class Submission(BaseModel):
         if self.domains:
             payload["domains"] = self.domains
 
-        # External import provenance (structured format)
-        if self.external_doi or self.external_url or self.external_source:
-            payload["external"] = {
-                "source": self.external_source or "Unknown",
-                "doi": self.external_doi,
-                "url": self.external_url,
-            }
+        # External import provenance. The v2 backend (cs/aws/v2/metadata.py) reads
+        # these as flat top-level keys, so emit them flat (only the ones that are set).
+        if self.external_doi:
+            payload["external_doi"] = self.external_doi
+        if self.external_url:
+            payload["external_url"] = self.external_url
+        if self.external_source:
+            payload["external_source"] = self.external_source
 
         # ML metadata
         if self.ml:

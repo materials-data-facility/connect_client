@@ -1,0 +1,974 @@
+[
+  {
+    "feature_id": "search-keyword",
+    "area": "Explore",
+    "command": "mdf search QUERY [--type all|datasets|streams] [--limit N] [--json] [--brief] [--service] [--api-url] [--token] [--dev-user]",
+    "user_story": "As a researcher, I want to keyword-search public MDF datasets and streams, so that I can find relevant data quickly.",
+    "expected_behavior": "Required positional QUERY. Defaults: --type all, --limit 20. Calls BackendClient.search (GET /search). Renders a Rich table (#, Type, Title, ID, Status, DOI) on success plus a 'Next: mdf show <id>' hint; prints '[dim]No results found for ...[/dim]' when empty. With --json dumps the full result envelope; with --json --brief emits a list of {title, authors, doi}. No explicit nonzero exit on empty results.",
+    "preconditions": "Network reachable; no auth needed for public read",
+    "auth_required": "no",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:search; core/backend_client.py:search",
+    "code_issues": [
+      "--brief is only honored under --json; passing --brief alone is silently ignored (main.py:1272-1282) and the help text does not surface the dependency at the flag level.",
+      "Unlike every other explore command, search builds an unauthenticated BackendClient when no token/dev_user is present (main.py:1244-1252), so its public-read behavior is inconsistent with show/list/related (which force interactive auth)."
+    ]
+  },
+  {
+    "feature_id": "search-semantic",
+    "area": "Explore",
+    "command": "mdf search QUERY --semantic [--limit N] [--json]",
+    "user_story": "As a researcher, I want vector semantic search over dataset title+description embeddings, so that I can find conceptually related datasets without exact keywords.",
+    "expected_behavior": "--semantic switches to BackendClient.search_semantic (GET /search/semantic), datasets only. If the response has available=False, prints '[yellow]Semantic search unavailable: <reason>[/yellow]' (or raw JSON) and returns. Otherwise normalizes query/total and renders the same table as keyword search. --type is ignored in semantic mode.",
+    "preconditions": "Backend has a built embedding snapshot; network reachable",
+    "auth_required": "no",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:search; core/backend_client.py:search_semantic",
+    "code_issues": [
+      "--semantic silently ignores --type even though the docstring advertises streams; no warning is emitted when both are passed."
+    ]
+  },
+  {
+    "feature_id": "list-datasets",
+    "area": "Explore",
+    "command": "mdf list [--limit N] [--status STATUS] [--search TEXT] [--latest-only] [--json] [--service] [--api-url] [--token] [--dev-user]",
+    "user_story": "As a researcher, I want to list my submitted datasets with optional filters, so that I can track what I have submitted and their statuses.",
+    "expected_behavior": "Defaults: --limit 50. Calls BackendClient.submissions() (your own submissions). Client-side filters: --status exact-match on status, --search substring over source_id/doi/dataset_doi/title (case-insensitive), --latest-only drops records whose dataset_mdata.latest is False. Renders Rich table (Source ID, Title, Version, Status, Updated) capped at --limit AFTER filtering; prints '[dim]No datasets found.[/dim]' when empty. --json dumps the raw unfiltered envelope.",
+    "preconditions": "authenticated (lists caller's own submissions)",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:list_datasets; core/backend_client.py:submissions",
+    "code_issues": [
+      "--json dumps the RAW backend result and ignores --status/--search/--latest-only filters entirely (main.py:1357-1359), so scripted JSON output silently differs from the table.",
+      "Filtering happens before the [:limit] slice but the backend submissions() call takes no limit/offset, so --limit only truncates the already-fetched list and can hide matching records beyond the cap.",
+      "Help/docstring lists only 'mdf list' and '--limit'; --status/--search/--latest-only flags are undocumented in the command help body (main.py:1340-1345)."
+    ]
+  },
+  {
+    "feature_id": "related-by-author",
+    "area": "Explore",
+    "command": "mdf related SOURCE_ID [--by author] [--limit N] [--json]",
+    "user_story": "As a researcher, I want datasets sharing an author with a given dataset, so that I can explore a group's body of work.",
+    "expected_behavior": "Default --by author, --limit 20. Resolves DOI->source_id first (with a notice). Calls related_by_author (GET /datasets/{id}/related?by=author). Renders a table (Source ID, Title, Shared, Year, DOI). Empty -> '[dim]No related datasets found for <id>[/dim]'. Invalid --by value exits code 2.",
+    "preconditions": "dataset exists; authenticated (forced by authenticated() fallthrough)",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:related; core/backend_client.py:related_by_author; cli/preflight.py:resolve_dataset_identifier",
+    "code_issues": [
+      "Uses BackendClient.authenticated() unconditionally (main.py:1444), so a purely public 'related' lookup triggers interactive Globus login when no token is configured."
+    ]
+  },
+  {
+    "feature_id": "related-similar",
+    "area": "Explore",
+    "command": "mdf related SOURCE_ID --by similar [--limit N] [--json]",
+    "user_story": "As a researcher, I want nearest-neighbor datasets by embedding, so that I can find similar work even without shared authors.",
+    "expected_behavior": "--by similar calls similar_by_embedding (GET /datasets/{id}/related?by=similar). If result.available is False, prints the reason in yellow and returns. Otherwise renders a table with a Score column (formatted to 3 decimals). Requires a built embedding snapshot. Empty results print the reason or a generic 'No related datasets' message.",
+    "preconditions": "dataset exists; embedding snapshot built; authenticated (forced)",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:related; core/backend_client.py:similar_by_embedding",
+    "code_issues": [
+      "Same forced-auth issue as related-by-author for what is a public read.",
+      "--by accepts only 'author'/'similar'; any other value exits 2 with no list of valid choices echoed beyond the error line."
+    ]
+  },
+  {
+    "feature_id": "show-dataset",
+    "area": "Explore",
+    "command": "mdf show SOURCE_ID [--cite] [--version V] [--json] [--service] [--api-url] [--token] [--dev-user]",
+    "user_story": "As a researcher, I want to view a dataset's metadata card, so that I can evaluate it before downloading or citing.",
+    "expected_behavior": "Required SOURCE_ID (DOI accepted, resolved with notice). Calls get_card (and get_citation in APA when --cite). Renders a Panel (title/description) plus a metadata table (Authors, Publisher, Year, Organization, Keywords, DOI, License, Status, ML task/format) and a files/stats line. With --cite appends the APA citation. --json dumps {card, citation?}. On card failure calls require_success -> exit 1. Prints a 'Next:' hint with dataset open/cite/preview.",
+    "preconditions": "dataset exists; authenticated (forced)",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:show; core/backend_client.py:get_card,get_citation",
+    "code_issues": [
+      "Forces BackendClient.authenticated() (main.py:1549) for a public dataset card, triggering interactive Globus OAuth login when no token/dev-user is set — a public read should not require login."
+    ]
+  },
+  {
+    "feature_id": "dataset-cite",
+    "area": "Dataset",
+    "command": "mdf dataset cite SOURCE_ID [--format apa|bibtex|ris|datacite] [--copy] [--version V] [--json]",
+    "user_story": "As a researcher, I want a formatted citation for a dataset, so that I can cite it in a paper or reference manager.",
+    "expected_behavior": "Default --format apa. Resolves DOI->id. Calls get_citation. citation_text = result[format] or result['apa']. With --copy pipes to pbcopy/xclip/xsel (no-op message if none). Renders a titled Rich Panel per format. --json dumps result and exits 1 on failure; non-json failure calls require_success -> exit 1.",
+    "preconditions": "dataset published with citation metadata; authenticated (forced)",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/dataset_cmd.py:cite; core/backend_client.py:get_citation; cli/main.py:cite_alias",
+    "code_issues": [
+      "Forced auth for a public citation read (dataset_cmd.py:85).",
+      "Top-level 'mdf cite' alias (main.py:cite_alias) is a thin re-import wrapper; identical functionality also exists at 'mdf backend cite' with an --output flag the dataset version lacks — three overlapping cite entry points (mdf cite / mdf dataset cite / mdf backend cite) drift in features.",
+      "--copy failures are swallowed silently (dataset_cmd.py:59-60) so a user can think it copied when it did not."
+    ]
+  },
+  {
+    "feature_id": "dataset-open",
+    "area": "Dataset",
+    "command": "mdf dataset open SOURCE_ID [--url] [--version V]",
+    "user_story": "As a researcher, I want to open a dataset's landing page in my browser, so that I can view it on the web.",
+    "expected_behavior": "Resolves DOI->id, fetches card. If card has a DOI, target = https://doi.org/<doi>, else https://materialsdatafacility.org/datasets/<source_id>. With --url prints the URL only; otherwise webbrowser.open(target). On card failure require_success -> exit 1.",
+    "preconditions": "dataset exists; authenticated (forced just to fetch the card)",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/dataset_cmd.py:open_dataset; cli/main.py:open_alias",
+    "code_issues": [
+      "Requires interactive auth and a network card fetch even with --url, where the user only wants a constructed URL string (dataset_cmd.py:138-164).",
+      "Fallback URL host 'materialsdatafacility.org/datasets/<id>' is hardcoded and unverified against the actual web app routing."
+    ]
+  },
+  {
+    "feature_id": "dataset-preview",
+    "area": "Dataset",
+    "command": "mdf dataset preview SOURCE_ID [--sample] [--json]",
+    "user_story": "As a researcher, I want to preview a dataset's file list or a tabular data sample, so that I can inspect contents before cloning.",
+    "expected_behavior": "Default lists files via dataset_preview (GET /preview/{id}) rendering Name/Size/Type table; --sample calls dataset_sample showing up to 20 rows x 10 columns. Empty -> '[dim]No ... available.[/dim]'. --json dumps result; exits 1 only if result has success=False (uses .get('success', True) so missing key treated as success).",
+    "preconditions": "dataset published with a preview profile; authenticated (forced)",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/dataset_cmd.py:preview; core/backend_client.py:dataset_preview,dataset_sample; cli/main.py:preview_alias",
+    "code_issues": [
+      "Forced auth for a public preview read (dataset_cmd.py:186).",
+      "result.get('success', True) default-True means an error envelope lacking a 'success' key is treated as success and never exits nonzero (dataset_cmd.py:204,208).",
+      "'mdf backend preview' has richer flags (--files/--file-path) than 'mdf dataset preview' (--sample only); overlapping commands with divergent capabilities."
+    ]
+  },
+  {
+    "feature_id": "dataset-versions",
+    "area": "Dataset",
+    "command": "mdf dataset versions SOURCE_ID [--limit N] [--offset N] [--json]",
+    "user_story": "As a researcher, I want to see a dataset's version history, so that I can pick or compare specific versions.",
+    "expected_behavior": "Defaults --limit 50, --offset 0. Resolves DOI->id, calls versions (GET, passes limit/offset). Renders table (Version, Title, Status, DOI, Updated) and a Dataset DOI line plus a 'Next: diff' hint. Empty -> '[dim]No versions found.[/dim]'. On success=False prints the error in yellow and RETURNS (does not exit nonzero). --json dumps result.",
+    "preconditions": "dataset exists; authenticated (forced)",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/dataset_cmd.py:versions; core/backend_client.py:versions; cli/main.py:versions_alias",
+    "code_issues": [
+      "On API failure it prints a yellow message and returns exit 0 (dataset_cmd.py:289-291), inconsistent with cite/diff/edit which exit 1 — bad for scripts.",
+      "The 'Next' hint indexes version_list[-1] which is the OLDEST page entry under default ordering, likely suggesting a confusing diff range (dataset_cmd.py:323)."
+    ]
+  },
+  {
+    "feature_id": "dataset-diff",
+    "area": "Dataset",
+    "command": "mdf dataset diff SOURCE_ID --from V1 --to V2 [--json]",
+    "user_story": "As a researcher, I want a metadata diff between two dataset versions, so that I can see what changed.",
+    "expected_behavior": "--from and --to are REQUIRED options. Resolves DOI->id, calls version_diff. Renders a change table (+ added, - removed, ~ changed with from->to) and an Unchanged line. --json dumps result and exits 1 on failure; non-json failure require_success -> exit 1.",
+    "preconditions": "dataset has >=2 versions; authenticated (forced)",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/dataset_cmd.py:diff; core/backend_client.py:version_diff; cli/main.py:diff_alias",
+    "code_issues": [
+      "Forced auth for a public version-diff read (dataset_cmd.py:346).",
+      "Value cells are truncated to 35-80 chars with no indication of truncation, so long fields silently lose content (dataset_cmd.py:379-384)."
+    ]
+  },
+  {
+    "feature_id": "dataset-edit",
+    "area": "Dataset",
+    "command": "mdf dataset edit SOURCE_ID [--title T] [--description D] [--keyword K ...] [--version V] [--json]",
+    "user_story": "As a researcher, I want to edit my submission's metadata, so that I can correct or enrich it without re-uploading data.",
+    "expected_behavior": "Builds a fields dict from provided --title/--description/--keyword (repeatable). If no fields given -> '[red]No fields provided to edit.[/red]' and exit 1. Calls edit_metadata. On success prints updated fields and new_version if returned. --json dumps result, exits 1 on failure; non-json failure require_success -> exit 1.",
+    "preconditions": "authenticated as the submission owner; submission editable",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/dataset_cmd.py:edit; core/backend_client.py:edit_metadata; cli/main.py:edit_alias",
+    "code_issues": [
+      "edit() does NOT resolve a DOI to source_id (unlike its sibling commands) — passing a DOI will hit the backend with the raw DOI string (dataset_cmd.py:413-434)."
+    ]
+  },
+  {
+    "feature_id": "dataset-withdraw",
+    "area": "Dataset",
+    "command": "mdf dataset withdraw SOURCE_ID [--reason R] [--version V] [--yes] [--json]",
+    "user_story": "As a researcher, I want to withdraw a pending_curation submission, so that I can pull it back out of the curation queue.",
+    "expected_behavior": "Interactive confirm unless --yes or non-TTY (declining exits 1). Resolves DOI->id, calls withdraw(reason or ''). On success prints '[bold yellow]Withdrawn: <id>[/bold yellow]'. --json dumps result, exits 1 on failure; non-json failure require_success -> exit 1.",
+    "preconditions": "authenticated as owner; submission in pending_curation",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/dataset_cmd.py:withdraw; core/backend_client.py:withdraw; cli/main.py:withdraw_alias",
+    "code_issues": []
+  },
+  {
+    "feature_id": "dataset-resubmit",
+    "area": "Dataset",
+    "command": "mdf dataset resubmit SOURCE_ID [--notes N] [--version V] [--json]",
+    "user_story": "As a researcher, I want to resubmit a rejected dataset, so that I can return it to the curation queue after fixes.",
+    "expected_behavior": "Resolves DOI->id, calls resubmit(notes or ''). On success prints '[bold green]Resubmitted: <id>[/bold green]' and a pending_curation badge. --json dumps result, exits 1 on failure; non-json failure require_success -> exit 1. No confirmation prompt.",
+    "preconditions": "authenticated as owner; submission previously rejected",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/dataset_cmd.py:resubmit; core/backend_client.py:resubmit; cli/main.py:resubmit_alias",
+    "code_issues": []
+  },
+  {
+    "feature_id": "admin-pending",
+    "area": "Curation/Admin",
+    "command": "mdf admin pending [--limit N] [--organization O] [--json]",
+    "user_story": "As a curator, I want to list datasets awaiting curation, so that I can pick what to review next.",
+    "expected_behavior": "Default --limit 20. Calls curation_pending(limit, organization). Renders a numbered table (#, Source ID, Title, Version, Submitted). Empty -> '[dim]No datasets pending curation.[/dim]'. --json dumps result (no nonzero exit).",
+    "preconditions": "authenticated as curator",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/admin_cmd.py:pending; core/backend_client.py:curation_pending; cli/main.py:pending_alias",
+    "code_issues": [
+      "Non-json path never surfaces an API error envelope (e.g. 403 not-a-curator) — an error result with no 'submissions' key just prints 'No datasets pending curation.' (admin_cmd.py:67-70)."
+    ]
+  },
+  {
+    "feature_id": "admin-approve",
+    "area": "Curation/Admin",
+    "command": "mdf admin approve SOURCE_ID [--mint-doi/--no-mint-doi] [--notes N] [--version V] [--yes] [--json]",
+    "user_story": "As a curator, I want to approve a dataset for publication and optionally mint a DOI, so that it goes live.",
+    "expected_behavior": "Default --mint-doi True. Confirm unless --yes/non-TTY. Resolves DOI->id, calls curation_approve. On success prints '[bold green]Approved: <id>[/bold green]' and the minted DOI if present. --json dumps result, exits 1 on failure; non-json failure require_success -> exit 1.",
+    "preconditions": "authenticated as curator; submission in pending_curation",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/admin_cmd.py:approve; core/backend_client.py:curation_approve; cli/main.py:approve_alias",
+    "code_issues": [
+      "The visible 'mdf admin approve' lacks the --metadata-updates JSON option that 'mdf backend curation-approve' exposes (backend.py:159-186), so curators editing metadata at approval time must drop to the hidden backend group."
+    ]
+  },
+  {
+    "feature_id": "admin-reject",
+    "area": "Curation/Admin",
+    "command": "mdf admin reject SOURCE_ID --reason R [--suggestions S] [--version V] [--yes] [--json]",
+    "user_story": "As a curator, I want to reject a dataset with a reason and suggestions, so that the submitter can fix and resubmit.",
+    "expected_behavior": "--reason REQUIRED. Confirm unless --yes/non-TTY. Resolves DOI->id, calls curation_reject. On success prints '[bold yellow]Rejected: <id>[/bold yellow]' and the reason. --json dumps result, exits 1 on failure; non-json failure require_success -> exit 1.",
+    "preconditions": "authenticated as curator; submission in pending_curation",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/admin_cmd.py:reject; core/backend_client.py:curation_reject; cli/main.py:reject_alias",
+    "code_issues": []
+  },
+  {
+    "feature_id": "admin-delete",
+    "area": "Curation/Admin",
+    "command": "mdf admin delete SOURCE_ID --reason R [--version V] [--yes] [--json]",
+    "user_story": "As a curator, I want to soft-delete a submission, so that I can remove spam or invalid records.",
+    "expected_behavior": "--reason REQUIRED. Confirm unless --yes/non-TTY. Resolves DOI->id, calls delete_submission. On success prints '[bold red]Deleted: <id>[/bold red]' and the reason. --json dumps result, exits 1 on failure; non-json failure require_success -> exit 1.",
+    "preconditions": "authenticated as curator",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/admin_cmd.py:delete_dataset; core/backend_client.py:delete_submission; cli/main.py:delete_alias",
+    "code_issues": []
+  },
+  {
+    "feature_id": "admin-stats",
+    "area": "Curation/Admin",
+    "command": "mdf admin stats [--json]",
+    "user_story": "As a curator, I want aggregate submission statistics, so that I can monitor queue health and usage.",
+    "expected_behavior": "Calls admin_stats. Prints total submissions, a by_status table, and access totals (views/downloads). --json dumps result, exits 1 on failure; non-json failure require_success -> exit 1.",
+    "preconditions": "authenticated as curator",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/admin_cmd.py:stats; core/backend_client.py:admin_stats; cli/main.py:stats_alias",
+    "code_issues": []
+  },
+  {
+    "feature_id": "admin-embedding-status",
+    "area": "Curation/Admin",
+    "command": "mdf admin embedding-status [--json]",
+    "user_story": "As a curator, I want embedding coverage and snapshot info, so that I know whether semantic search is current.",
+    "expected_behavior": "Calls embedding_status (GET /admin/embeddings/status). Prints current model, published/with-embedding/missing counts, stale count, by_model breakdown, and snapshot metadata (built_at, count/dims, model, sha). If no snapshot, suggests running rebuild-embeddings. --json dumps result, exits 1 on failure; non-json failure require_success -> exit 1.",
+    "preconditions": "authenticated as curator",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/admin_cmd.py:embedding_status; core/backend_client.py:embedding_status",
+    "code_issues": []
+  },
+  {
+    "feature_id": "admin-rebuild-embeddings",
+    "area": "Curation/Admin",
+    "command": "mdf admin rebuild-embeddings [--force] [--no-snapshot] [--limit N] [--yes] [--json]",
+    "user_story": "As a curator, I want to generate missing embeddings and rebuild the semantic-search snapshot, so that new datasets become semantically searchable.",
+    "expected_behavior": "Confirm unless --yes/non-TTY (the prompt warns --force re-embeds everything via OpenAI). Calls rebuild_embeddings(force, build_snapshot=not no_snapshot, limit). Prints model, mode, limit, snapshot flag, and a dispatch job/message id, then points at embedding-status to poll. --json dumps result, exits 1 on failure; non-json failure require_success -> exit 1.",
+    "preconditions": "authenticated as curator; backend worker + OpenAI configured",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/admin_cmd.py:rebuild_embeddings; core/backend_client.py:rebuild_embeddings",
+    "code_issues": []
+  },
+  {
+    "feature_id": "config-show",
+    "area": "Config",
+    "command": "mdf config show",
+    "user_story": "As a researcher, I want to view my current MDF config, so that I can confirm my defaults.",
+    "expected_behavior": "Prints the JSON config (~/.config/mdf_agent/config.json) syntax-highlighted, or '[dim]No configuration set yet.[/dim]' plus the path when empty. No network, no auth.",
+    "preconditions": "none",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "cli/config_cmd.py:show; core/config.py:GlobalConfig",
+    "code_issues": []
+  },
+  {
+    "feature_id": "config-set",
+    "area": "Config",
+    "command": "mdf config set KEY VALUE",
+    "user_story": "As a researcher, I want to set a config value by dotted key, so that I do not have to pass flags every time.",
+    "expected_behavior": "Validates known keys (defaults.service against {prod,staging,dev,local}; user.email regex; globus.local_endpoint_id UUID) and prints a yellow warning on suspect values but still writes. Persists via dotted-key set + save. Prints '[green]Set[/green] key = value'.",
+    "preconditions": "none",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "cli/config_cmd.py:set_value; core/config.py:validate_config_value,GlobalConfig.set",
+    "code_issues": [
+      "Validation is warn-only: an invalid service/email/UUID is still saved, which can silently break later commands (config_cmd.py:44-50).",
+      "All values are stored as strings; no type coercion, so e.g. numeric/boolean config keys are persisted as strings."
+    ]
+  },
+  {
+    "feature_id": "config-get",
+    "area": "Config",
+    "command": "mdf config get KEY",
+    "user_story": "As a CI/script, I want to read a single config value, so that I can branch on it.",
+    "expected_behavior": "Prints the value (JSON-encoded if dict/list, else str). If the key is unset prints '[dim]KEY is not set[/dim]' and exits 1.",
+    "preconditions": "none",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "cli/config_cmd.py:get_value; core/config.py:GlobalConfig.get",
+    "code_issues": []
+  },
+  {
+    "feature_id": "config-path",
+    "area": "Config",
+    "command": "mdf config path",
+    "user_story": "As a researcher, I want the config file path, so that I can edit or back it up directly.",
+    "expected_behavior": "Prints the absolute path to config.json (~/.config/mdf_agent/config.json). No network/auth.",
+    "preconditions": "none",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "cli/config_cmd.py:path",
+    "code_issues": []
+  },
+  {
+    "feature_id": "config-doctor",
+    "area": "Config",
+    "command": "mdf config doctor [--json] [--service S] [--api-url U]",
+    "user_story": "As a researcher, I want a one-shot diagnostic of my setup, so that I can quickly find what is misconfigured.",
+    "expected_behavior": "Runs five checks: Config file exists, Auth ready (auth_ready / MDF_CONNECT_TOKEN), Service URL resolvable, Connectivity (unauthenticated health() with latency), and Manifest (preflight on mdf.yaml if present). Prints each check with a * (ok) or - (not ok) symbol. --json emits {success, checks}. Always exits 0 (even when checks fail).",
+    "preconditions": "none; network used only for the connectivity check",
+    "auth_required": "no",
+    "network_required": "partial",
+    "source_refs": "cli/config_cmd.py:doctor; cli/preflight.py:auth_ready,run_preflight; cli/main.py:doctor (hidden top-level alias)",
+    "code_issues": [
+      "doctor never exits nonzero even when checks fail (config_cmd.py:157-165 returns; no Exit), so CI cannot gate on 'mdf config doctor' success without parsing --json.",
+      "Both 'mdf config doctor' and a hidden top-level 'mdf doctor' exist (main.py:1773-1781) — duplicate entry points for the same function."
+    ]
+  },
+  {
+    "feature_id": "manifest-init",
+    "area": "Manifest",
+    "command": "mdf manifest init [PATH] [--title T] [--author A ...] [--description D] [--publisher P] [--year Y] [--organization O] [--keyword K ...]   (also: mdf config manifest init)",
+    "user_story": "As a researcher, I want to create an mdf.yaml manifest, so that I do not have to pass metadata on every publish.",
+    "expected_behavior": "PATH defaults to '.'. In a TTY, missing title/authors/description/org/keywords are prompted interactively; non-TTY requires --title and --author or exits 1. If mdf.yaml already exists prints a yellow notice and exits 1. Creates the manifest via MDFAgent.init_manifest, offers detected data-source candidates (TTY), then prints a created summary.",
+    "preconditions": "writable directory; no existing mdf.yaml",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "cli/manifest_cmd.py:manifest_init; core/agent.py:MDFAgent.init_manifest; cli/main.py:init (hidden alias)",
+    "code_issues": [
+      "Three entry points for the same flow: 'mdf manifest init', 'mdf config manifest init', and hidden top-level 'mdf init' (main.py:1629-1647); the hidden 'mdf init' alias omits --organization/--keyword that the real command supports.",
+      "init_manifest writes the manifest twice when org/keywords/data_sources are present (init_manifest then save_manifest), and the keyword->subjects / data_sources mutation happens after the file is first written (manifest_cmd.py:100-118)."
+    ]
+  },
+  {
+    "feature_id": "manifest-discover",
+    "area": "Manifest",
+    "command": "mdf manifest discover PATHS... [--preview]   (also: mdf config manifest discover)",
+    "user_story": "As a researcher, I want to auto-extract metadata (schemas, columns, DOIs) from my data files into mdf.yaml, so that the manifest is richer with less manual work.",
+    "expected_behavior": "Requires an existing mdf.yaml in cwd (else exit 1 with a hint to run init). PATHS are globbed relative to the manifest root. Without --preview, agent.discover() merges extracted metadata into manifest.auto_metadata and saves; prints the merged top-level keys. With --preview, runs discover_metadata over resolved files and prints the JSON WITHOUT writing. Empty extraction -> '[yellow]No metadata extracted[/yellow]'.",
+    "preconditions": "mdf.yaml present in cwd; data files exist",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "cli/manifest_cmd.py:manifest_discover; core/agent.py:MDFAgent.discover; extractors/registry.py:discover_metadata",
+    "code_issues": [
+      "--preview and non-preview use DIFFERENT file-resolution code paths (preview resolves via local glob in manifest_cmd; non-preview via agent.discover glob), so the preview can list files the actual write would not, and vice versa (manifest_cmd.py:155-170).",
+      "discover() merges with manifest.auto_metadata via dict.update at the top level only; re-running with new files can overwrite prior keys rather than deep-merging across runs (agent.py:666-672)."
+    ]
+  },
+  {
+    "feature_id": "manifest-inspect",
+    "area": "Manifest",
+    "command": "mdf manifest inspect [PATH]   (also: mdf config manifest inspect)",
+    "user_story": "As a researcher, I want a readable summary of my manifest plus preflight notes, so that I can sanity-check it before publishing.",
+    "expected_behavior": "PATH defaults to '.'. Requires mdf.yaml (else exit 1). Loads the manifest, runs run_preflight(submit=False) with the config default service, and renders: a title/description panel, a fields table (Authors, Publisher, Organization, Keywords, Data sources count or 'Auto-scan'), a Resolved sources table, and Preflight notes per issue.",
+    "preconditions": "mdf.yaml present",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "cli/manifest_cmd.py:manifest_inspect; cli/preflight.py:run_preflight",
+    "code_issues": [
+      "Resolved-sources 'Bytes' column prints raw integer bytes (manifest_cmd.py:240) whereas the publish/preflight renderer uses human-readable sizes — inconsistent units across views."
+    ]
+  },
+  {
+    "feature_id": "backend-hint-callback",
+    "area": "Backend (low-level)",
+    "command": "mdf backend <subcommand> [--service] [--token] [--dev-user]",
+    "user_story": "As a CI/script, I want low-level access to the raw v2 API, so that I can call endpoints not surfaced by the friendly commands.",
+    "expected_behavior": "The group callback always prints to stderr: \"Hint: try top-level commands like 'mdf cite', 'mdf preview', 'mdf doctor' instead of 'mdf backend ...'\" and stashes service/token/dev_user for subcommands. Every subcommand builds an authenticated client via these stashed opts.",
+    "preconditions": "varies by subcommand",
+    "auth_required": "partial",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:backend_callback",
+    "code_issues": [
+      "The hint fires on EVERY backend invocation, including --json scripted use, polluting stderr (backend.py:31-35).",
+      "All three hinted commands DO exist as hidden top-level aliases (main.py:cite_alias/preview_alias/doctor), but they are themselves hidden, so the hint points users at undiscoverable commands; 'mdf preview' top-level lacks the --files/--file-path that backend preview has."
+    ]
+  },
+  {
+    "feature_id": "backend-health",
+    "area": "Backend (low-level)",
+    "command": "mdf backend health [--api-url U] [--json]",
+    "user_story": "As a CI/script, I want a raw backend health check, so that I can verify the API is up.",
+    "expected_behavior": "Calls client.health(). Non-json prints '[green]Backend is healthy[/green]' on success or maps the error; --json dumps the raw envelope.",
+    "preconditions": "none",
+    "auth_required": "partial",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:health; core/backend_client.py:health",
+    "code_issues": []
+  },
+  {
+    "feature_id": "backend-submit",
+    "area": "Backend (low-level)",
+    "command": "mdf backend submit --payload FILE [--api-url U] [--json]",
+    "user_story": "As a CI/script, I want to submit a raw submission JSON, so that I can publish with a hand-built payload.",
+    "expected_behavior": "Reads --payload as JSON and calls client.submit(data). On success prints 'Submitted: <source_id> v<version>'; --json dumps result; failure handled via handle_api_result.",
+    "preconditions": "authenticated; valid payload file",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:submit; core/backend_client.py:submit",
+    "code_issues": [
+      "Bypasses the local-file HTTPS upload that the high-level publish performs (agent.publish), so a payload with local data_sources paths is submitted verbatim and will not have files uploaded."
+    ]
+  },
+  {
+    "feature_id": "backend-status",
+    "area": "Backend (low-level)",
+    "command": "mdf backend status --source-id ID [--version V] [--api-url U] [--json]",
+    "user_story": "As a CI/script, I want raw submission status, so that I can poll programmatically.",
+    "expected_behavior": "Calls client.status. Non-json prints '<id> v<ver>' and a status badge, or handle_api_result on missing source_id; --json dumps raw.",
+    "preconditions": "authenticated; submission exists",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:status; core/backend_client.py:status",
+    "code_issues": []
+  },
+  {
+    "feature_id": "backend-submissions",
+    "area": "Backend (low-level)",
+    "command": "mdf backend submissions [--organization O] [--api-url U] [--json]",
+    "user_story": "As a CI/script, I want the raw submissions list, so that I can process it programmatically.",
+    "expected_behavior": "Calls client.submissions(organization). Non-json prints a count and one line per submission; --json dumps raw.",
+    "preconditions": "authenticated",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:submissions; core/backend_client.py:submissions",
+    "code_issues": []
+  },
+  {
+    "feature_id": "backend-curation-pending",
+    "area": "Backend (low-level)",
+    "command": "mdf backend curation-pending [--limit N] [--offset N] [--organization O] [--api-url U] [--json]",
+    "user_story": "As a curator/script, I want the raw pending-curation list with offset paging, so that I can page through the queue.",
+    "expected_behavior": "Default --limit 50, --offset 0. Calls curation_pending(limit, offset, organization). Non-json prints a count plus 'source_id — title'; empty prints a dim notice; --json dumps raw.",
+    "preconditions": "authenticated as curator",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:curation_pending",
+    "code_issues": [
+      "Exposes --offset paging that the friendly 'mdf admin pending' lacks (default limit also differs: 50 here vs 20 in admin)."
+    ]
+  },
+  {
+    "feature_id": "backend-curation-detail",
+    "area": "Backend (low-level)",
+    "command": "mdf backend curation-detail --source-id ID [--version V] [--api-url U] [--json]",
+    "user_story": "As a curator/script, I want full curation detail for a submission, so that I can review everything before deciding.",
+    "expected_behavior": "Calls curation_detail. Output via format_result_or_json (raw JSON in --json, else success/error interpretation).",
+    "preconditions": "authenticated as curator; submission exists",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:curation_detail; core/backend_client.py:curation_detail",
+    "code_issues": [
+      "No friendly equivalent in 'mdf admin'; curation detail is only reachable through the hidden backend group (or the skill curation_review tool)."
+    ]
+  },
+  {
+    "feature_id": "backend-curation-approve",
+    "area": "Backend (low-level)",
+    "command": "mdf backend curation-approve --source-id ID [--mint-doi/--no-mint-doi] [--notes N] [--metadata-updates FILE] [--version V] [--api-url U] [--json]",
+    "user_story": "As a curator/script, I want to approve with optional metadata updates from a JSON file, so that I can fix metadata at approval time.",
+    "expected_behavior": "Reads --metadata-updates JSON if given; calls curation_approve with mint_doi/notes/metadata_updates/version. Output via format_result_or_json with success_msg 'Approved: <id>'.",
+    "preconditions": "authenticated as curator",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:curation_approve",
+    "code_issues": [
+      "--metadata-updates is the only way to inject metadata at approval and exists ONLY here, not in 'mdf admin approve'."
+    ]
+  },
+  {
+    "feature_id": "backend-curation-reject",
+    "area": "Backend (low-level)",
+    "command": "mdf backend curation-reject --source-id ID --reason R [--suggestions S] [--version V] [--api-url U] [--json]",
+    "user_story": "As a curator/script, I want to reject a submission programmatically, so that automation can enforce policy.",
+    "expected_behavior": "--reason REQUIRED. Calls curation_reject. Output via format_result_or_json with success_msg 'Rejected: <id>'.",
+    "preconditions": "authenticated as curator",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:curation_reject",
+    "code_issues": []
+  },
+  {
+    "feature_id": "backend-update-status",
+    "area": "Backend (low-level)",
+    "command": "mdf backend update-status --source-id ID --version V --status S [--api-url U] [--json]",
+    "user_story": "As an operator/script, I want to force a submission's status, so that I can correct stuck records.",
+    "expected_behavior": "All three options REQUIRED. Calls update_status(source_id, version, status). Output via format_result_or_json with success_msg 'Status updated: <id> -> <status>'.",
+    "preconditions": "authenticated with admin privileges",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:update_status; core/backend_client.py:update_status",
+    "code_issues": [
+      "No confirmation and no validation of the status string — a typo writes an arbitrary status value to the backend."
+    ]
+  },
+  {
+    "feature_id": "backend-stream-create",
+    "area": "Backend (low-level)",
+    "command": "mdf backend stream-create --title T [--lab-id L] [--organization O] [--api-url U] [--json]",
+    "user_story": "As a lab/script, I want to create a stream via the raw API, so that I can begin a streaming dataset.",
+    "expected_behavior": "Calls stream_create. Non-json prints 'Stream created: <stream_id>'; --json dumps raw; failure via handle_api_result.",
+    "preconditions": "authenticated",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:stream_create",
+    "code_issues": [
+      "Exact duplicate of 'mdf stream create' (stream.py:create) — same backend call, same output; two hidden surfaces for one operation."
+    ]
+  },
+  {
+    "feature_id": "backend-stream-append",
+    "area": "Backend (low-level)",
+    "command": "mdf backend stream-append --stream-id ID [--files FILE] [--file-count N] [--total-bytes N] [--api-url U] [--json]",
+    "user_story": "As a lab/script, I want to register stream files/counters via the raw API, so that I can record streamed contents.",
+    "expected_behavior": "Reads --files JSON (list or {files:[...]}); calls stream_append. Output via format_result_or_json with success_msg 'Files appended'.",
+    "preconditions": "authenticated; stream exists",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:stream_append",
+    "code_issues": [
+      "Duplicate of 'mdf stream append'."
+    ]
+  },
+  {
+    "feature_id": "backend-stream-status",
+    "area": "Backend (low-level)",
+    "command": "mdf backend stream-status --stream-id ID [--api-url U] [--json]",
+    "user_story": "As a lab/script, I want raw stream status, so that I can monitor it.",
+    "expected_behavior": "Calls stream_status. Non-json prints stream_id, status badge, file count; --json dumps raw.",
+    "preconditions": "authenticated; stream exists",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:stream_status",
+    "code_issues": [
+      "Overlaps 'mdf stream status' but renders differently (backend prints fields; stream uses format_result_or_json raw) — inconsistent UX between the two stream surfaces."
+    ]
+  },
+  {
+    "feature_id": "backend-stream-close",
+    "area": "Backend (low-level)",
+    "command": "mdf backend stream-close --stream-id ID [--mint-doi/--no-mint-doi] [--title] [--description] [--authors FILE] [--keywords FILE] [--license] [--api-url U] [--json]",
+    "user_story": "As a lab/script, I want to close a stream with final metadata via the raw API, so that it becomes a finalized dataset.",
+    "expected_behavior": "Reads --authors/--keywords JSON files; calls stream_close. Output via format_result_or_json 'Stream closed: <id>'.",
+    "preconditions": "authenticated; stream exists",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:stream_close",
+    "code_issues": [
+      "Duplicate of 'mdf stream close'."
+    ]
+  },
+  {
+    "feature_id": "backend-stream-snapshot",
+    "area": "Backend (low-level)",
+    "command": "mdf backend stream-snapshot --stream-id ID [--title] [--update] [--api-url U] [--json]",
+    "user_story": "As a lab/script, I want to snapshot a live stream into a dataset, so that I can publish a point-in-time copy.",
+    "expected_behavior": "Calls stream_snapshot(stream_id, title, update). Output via format_result_or_json 'Snapshot created'.",
+    "preconditions": "authenticated; stream exists",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:stream_snapshot",
+    "code_issues": [
+      "Duplicate of 'mdf stream snapshot'."
+    ]
+  },
+  {
+    "feature_id": "backend-search",
+    "area": "Backend (low-level)",
+    "command": "mdf backend search QUERY [--type all|datasets|streams] [--limit N] [--api-url U]",
+    "user_story": "As a script, I want a plain-text search dump, so that I can grep results.",
+    "expected_behavior": "Calls client.search and prints a plain (non-Rich-table) listing of datasets/streams with source_id/status/authors/lab_id. No --json flag; always plain text.",
+    "preconditions": "authenticated (uses _client which is always authenticated())",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:search",
+    "code_issues": [
+      "Unlike top-level 'mdf search', this builds an authenticated client unconditionally, so backend search of public data forces login (backend.py:38-44, 345).",
+      "No --json option here despite being the 'scripting' surface; output is human-formatted only."
+    ]
+  },
+  {
+    "feature_id": "backend-card",
+    "area": "Backend (low-level)",
+    "command": "mdf backend card SOURCE_ID [--version V] [--api-url U]",
+    "user_story": "As a script, I want the raw dataset card rendering, so that I can inspect it.",
+    "expected_behavior": "Calls get_card and renders a Panel + metadata table (includes Lab ID and Methods fields not shown by top-level 'mdf show'). On failure prints '[red]Error[/red]' and exits 1. No --json flag.",
+    "preconditions": "authenticated (forced); dataset exists",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:card; core/backend_client.py:get_card",
+    "code_issues": [
+      "Renders Status with a hardcoded green style regardless of actual status (backend.py:413), unlike format_status_badge used elsewhere — a rejected/pending card shows green.",
+      "No --json flag on the low-level surface where scripts most need it."
+    ]
+  },
+  {
+    "feature_id": "backend-cite",
+    "area": "Backend (low-level)",
+    "command": "mdf backend cite SOURCE_ID [--format apa|bibtex|ris|datacite] [--version V] [--output FILE] [--api-url U]",
+    "user_story": "As a script, I want to fetch a citation and optionally write it to a file, so that I can build reference files.",
+    "expected_behavior": "Calls get_citation. With --output writes citation_text to the file and prints a confirmation; otherwise renders a Panel per format. On failure prints '[red]Error[/red]' and exits 1. No --json flag.",
+    "preconditions": "authenticated (forced); dataset published",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:cite",
+    "code_issues": [
+      "This is the only cite surface with --output, while 'mdf dataset cite' is the only one with --copy — citation features are split across two commands."
+    ]
+  },
+  {
+    "feature_id": "backend-preview",
+    "area": "Backend (low-level)",
+    "command": "mdf backend preview SOURCE_ID [--files] [--sample] [--file-path P] [--api-url U]",
+    "user_story": "As a script, I want raw preview/profile/sample/file-detail JSON, so that I can drive downstream tooling.",
+    "expected_behavior": "Mutually exclusive flags enforced (--file-path vs --files/--sample, and --files vs --sample raise BadParameter). Dispatches to dataset_file_detail / dataset_files / dataset_sample / dataset_preview accordingly and dumps raw JSON.",
+    "preconditions": "authenticated (forced); dataset has a profile",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/backend.py:preview; core/backend_client.py:dataset_file_detail,dataset_files,dataset_sample,dataset_preview",
+    "code_issues": [
+      "Always dumps raw JSON with no human option, while the hint callback steers users here from 'mdf preview' which conversely has no --files/--file-path — feature split across the two."
+    ]
+  },
+  {
+    "feature_id": "stream-create",
+    "area": "Streaming",
+    "command": "mdf stream create --title T [--lab-id L] [--organization O] [--api-url U] [--json]",
+    "user_story": "As a lab, I want to open a streaming dataset, so that I can append instrument files over time.",
+    "expected_behavior": "Calls stream_create. Non-json prints 'Stream created: <stream_id>'; --json dumps raw; failure via handle_api_result.",
+    "preconditions": "authenticated",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/stream.py:create",
+    "code_issues": [
+      "Duplicate of 'mdf backend stream-create'."
+    ]
+  },
+  {
+    "feature_id": "stream-append",
+    "area": "Streaming",
+    "command": "mdf stream append --stream-id ID [--files FILE] [--file-count N] [--total-bytes N] [--api-url U] [--json]",
+    "user_story": "As a lab, I want to register appended files or update counters on a stream, so that the stream reflects new data.",
+    "expected_behavior": "Reads --files JSON (list or {files}); calls stream_append. Output via format_result_or_json 'Files appended'.",
+    "preconditions": "authenticated; stream exists",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/stream.py:append",
+    "code_issues": []
+  },
+  {
+    "feature_id": "stream-status",
+    "area": "Streaming",
+    "command": "mdf stream status --stream-id ID [--api-url U] [--json]",
+    "user_story": "As a lab, I want to check a stream's status, so that I know its state and file count.",
+    "expected_behavior": "Calls stream_status and outputs via format_result_or_json (raw JSON with --json, else success/error interpretation). Unlike backend stream-status, does NOT pretty-print fields on success.",
+    "preconditions": "authenticated; stream exists",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/stream.py:status",
+    "code_issues": [
+      "On success in non-json mode, format_result_or_json prints nothing (no success_msg passed), so a user sees no output for a healthy stream (stream.py:96-99)."
+    ]
+  },
+  {
+    "feature_id": "stream-close",
+    "area": "Streaming",
+    "command": "mdf stream close --stream-id ID [--mint-doi/--no-mint-doi] [--title] [--description] [--authors FILE] [--keywords FILE] [--license] [--api-url U] [--json]",
+    "user_story": "As a lab, I want to finalize a stream with metadata, so that it becomes a citable dataset.",
+    "expected_behavior": "Reads --authors/--keywords JSON files; calls stream_close. Output via format_result_or_json 'Stream closed: <id>'.",
+    "preconditions": "authenticated; stream exists",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/stream.py:close",
+    "code_issues": []
+  },
+  {
+    "feature_id": "stream-snapshot",
+    "area": "Streaming",
+    "command": "mdf stream snapshot --stream-id ID [--title] [--update] [--api-url U] [--json]",
+    "user_story": "As a lab, I want to snapshot a stream into a dataset, so that I can publish a versioned copy while the stream continues.",
+    "expected_behavior": "Calls stream_snapshot. Output via format_result_or_json 'Snapshot created'.",
+    "preconditions": "authenticated; stream exists",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/stream.py:snapshot",
+    "code_issues": []
+  },
+  {
+    "feature_id": "stream-upload",
+    "area": "Streaming",
+    "command": "mdf stream upload --stream-id ID FILES... [--api-url U]",
+    "user_story": "As a lab, I want to upload files to a stream, so that the actual data is stored.",
+    "expected_behavior": "Files > 6 MB use a presigned PUT path with a Rich progress bar + md5, then confirm; smaller files use a base64 stream_upload. Prints an uploaded summary table and an errors list. No nonzero exit even when some files fail.",
+    "preconditions": "authenticated; stream exists; files readable",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/stream.py:upload; core/backend_client.py:stream_get_upload_url,stream_confirm_upload,stream_upload",
+    "code_issues": [
+      "On per-file errors the command still exits 0 (no typer.Exit), so scripts cannot detect partial-upload failure (stream.py:282-285).",
+      "The presigned-path _file_stream closure captures file_path/md5 via late binding inside a loop; correct here only because it runs synchronously before the next iteration — fragile if refactored."
+    ]
+  },
+  {
+    "feature_id": "stream-files",
+    "area": "Streaming",
+    "command": "mdf stream files --stream-id ID [--api-url U]",
+    "user_story": "As a lab, I want to list files already uploaded to a stream, so that I can confirm what was stored.",
+    "expected_behavior": "Calls stream_list_files. On success prints a count and a table (Filename, Size KB, Uploaded, Checksum). Empty -> '[dim]No files uploaded yet[/dim]'. On failure prints '[red]Error[/red]'. No --json flag.",
+    "preconditions": "authenticated; stream exists",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/stream.py:list_files; core/backend_client.py:stream_list_files",
+    "code_issues": [
+      "checksum_md5 is sliced [:12] without a None guard (stream.py:316) — a missing checksum would raise; size always shown in KB even for large files."
+    ]
+  },
+  {
+    "feature_id": "skill-tool-registry",
+    "area": "Skill/SDK",
+    "command": "from mdf_agent.skill.mdf_tools import TOOLS  (flat name->callable registry)",
+    "user_story": "As an AI agent, I want a flat registry of MDF tool functions, so that I can expose them as MCP/agent tools.",
+    "expected_behavior": "TOOLS maps ~29 names (mdf_health_check, mdf_scan_folder, mdf_create_manifest, mdf_suggest_mappings, mdf_validate_and_preview, mdf_publish, stream_*, search_datasets, get_citation, get_card, dataset_preview/sample, curation_*, edit_metadata, withdraw, resubmit, version_diff, delete_submission, admin_stats, dataset_stats) to handlers. Each handler is wrapped by agent_safe which adds success=True or returns {success:False,error,error_type} on exception.",
+    "preconditions": "varies per tool",
+    "auth_required": "partial",
+    "network_required": "partial",
+    "source_refs": "skill/mdf_tools.py:TOOLS; skill/handlers.py:agent_safe",
+    "code_issues": [
+      "skill.md documents only 5 actions (scan_folder/create_manifest/suggest_mappings/validate_and_preview/publish) while the registry exposes ~29 tools — the skill manifest is badly out of date.",
+      "All network handlers default service_instance='prod' (handlers.py), but the CLI default is 'staging' (config.resolve_service), so an agent and a human hit different services by default."
+    ]
+  },
+  {
+    "feature_id": "skill-scan-folder",
+    "area": "Skill/SDK",
+    "command": "skill tool: mdf_scan_folder(path)",
+    "user_story": "As an AI agent, I want to recursively extract metadata from a folder, so that I can propose a manifest.",
+    "expected_behavior": "Recursively globs all files under path and runs discover_metadata, returning aggregated extractor output with success=True injected. No auth/network.",
+    "preconditions": "path exists",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "skill/handlers.py:scan_folder; extractors/registry.py:discover_metadata",
+    "code_issues": [
+      "rglob over the entire tree with no size/count guard could be slow on large directories; no filtering of hidden/system files (unlike the CLI preflight which skips dotfiles)."
+    ]
+  },
+  {
+    "feature_id": "skill-suggest-mappings",
+    "area": "Skill/SDK",
+    "command": "skill tool: mdf_suggest_mappings(headers)",
+    "user_story": "As an AI agent, I want suggested field mappings from column headers, so that I can map raw data to MDF concepts.",
+    "expected_behavior": "Pure local heuristic: returns mappings only for headers containing 'temp'->measurement.temperature, 'energy'->dft.formation_energy, 'comp'->material.composition. All other headers are omitted. success=True injected.",
+    "preconditions": "none",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "skill/handlers.py:suggest_mappings",
+    "code_issues": [
+      "Hardcoded 3-rule heuristic with substring matching; 'comp' matches 'computation'/'completed' etc., producing spurious material.composition mappings."
+    ]
+  },
+  {
+    "feature_id": "skill-validate-and-preview",
+    "area": "Skill/SDK",
+    "command": "skill tool: mdf_validate_and_preview(path)",
+    "user_story": "As an AI agent, I want to validate a manifest and see the submission JSON, so that I can check readiness before publishing.",
+    "expected_behavior": "Loads manifest from path, runs agent.validate() (errors+warnings) and agent.build_submission(), returns {validation, submission, success:True}. Raises (caught by agent_safe) if no mdf.yaml.",
+    "preconditions": "mdf.yaml at path",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "skill/handlers.py:validate_and_preview; core/agent.py:validate,build_submission",
+    "code_issues": []
+  },
+  {
+    "feature_id": "skill-publish",
+    "area": "Skill/SDK",
+    "command": "skill tool: mdf_publish(path, submit=False, test=False, update=False, token=None, service_instance='prod', ...)",
+    "user_story": "As an AI agent, I want to publish (or dry-run) a manifest dataset, so that I can submit data on a user's behalf.",
+    "expected_behavior": "Loads manifest from path; calls agent.publish(dry_run=not submit). dry_run returns {success, payload}; submit uploads local files and calls submit(). Legacy client_id/scope args accepted and ignored. agent_safe wraps exceptions.",
+    "preconditions": "mdf.yaml at path; authenticated when submit=True",
+    "auth_required": "partial",
+    "network_required": "partial",
+    "source_refs": "skill/handlers.py:publish; core/agent.py:publish",
+    "code_issues": [
+      "No progress callbacks plumbed, so a long agent-driven upload is opaque; defaults to prod service which differs from CLI default."
+    ]
+  },
+  {
+    "feature_id": "skill-backend-tools",
+    "area": "Skill/SDK",
+    "command": "skill tools: mdf_search_datasets / mdf_get_card / mdf_get_citation / mdf_check_status / mdf_list_submissions / mdf_dataset_preview / mdf_dataset_sample / mdf_dataset_stats / mdf_curation_* / mdf_edit_metadata / mdf_withdraw / mdf_resubmit / mdf_version_diff / mdf_delete_submission / mdf_admin_stats / mdf_stream_* / mdf_health_check",
+    "user_story": "As an AI agent, I want one-call wrappers over the backend API, so that I can search, inspect, curate, and stream without managing a client.",
+    "expected_behavior": "Each calls _run_backend_action(action, ...) which opens an authenticated BackendClient (service_instance default 'prod'), invokes the named method, and always closes the client. agent_safe normalizes the envelope. Read tools (search/card/citation/preview/sample) work without writes; curation/edit/withdraw/delete require curator/owner auth.",
+    "preconditions": "authenticated for write/curation tools; search/card public",
+    "auth_required": "partial",
+    "network_required": "yes",
+    "source_refs": "skill/handlers.py:_run_backend_action and the per-action wrappers; skill/mdf_tools.py:TOOLS",
+    "code_issues": [
+      "_run_backend_action calls BackendClient.authenticated() for read-only tools too, so an unauthenticated agent doing mdf_search_datasets/mdf_get_card triggers interactive Globus OAuth (handlers.py:39-49).",
+      "mdf_get_citation default format='all' but the underlying get_citation/format handling differs from the CLI default 'apa' — inconsistent defaults between SDK/skill and CLI.",
+      "mdf_dataset_stats maps to backend dataset_stats but there is no CLI command for it — only reachable via the skill."
+    ]
+  },
+  {
+    "feature_id": "sdk-mdfagent-readers",
+    "area": "Skill/SDK",
+    "command": "MDFAgent.search(query, ...), .show(source_id, ...), .versions(source_id, ...), .cite(source_id, format='all', ...), .pending(...)",
+    "user_story": "As a CI/script, I want programmatic read access to MDF, so that I can integrate dataset discovery into pipelines.",
+    "expected_behavior": "Each method constructs BackendClient.authenticated(service_instance default 'prod'), calls the matching client method, closes, and returns the raw dict. .cite defaults format='all'; .versions takes no limit/offset (uses backend defaults).",
+    "preconditions": "network reachable; auth for non-public or forced by authenticated()",
+    "auth_required": "partial",
+    "network_required": "yes",
+    "source_refs": "core/agent.py:search,show,versions,cite,pending",
+    "code_issues": [
+      "SDK readers default service_instance='prod' while the CLI defaults to 'staging' — a script using MDFAgent().search() hits prod, surprising users who configured staging.",
+      "All readers use authenticated() so even public reads can trigger interactive login when run without a token in a TTY."
+    ]
+  },
+  {
+    "feature_id": "sdk-mdfagent-curation",
+    "area": "Skill/SDK",
+    "command": "MDFAgent.approve(source_id, mint_doi=True, ...), .reject(source_id, reason, ...)",
+    "user_story": "As a CI/script, I want to approve or reject submissions programmatically, so that I can automate curation policy.",
+    "expected_behavior": "approve/reject build an authenticated client and call curation_approve/curation_reject, returning the raw envelope. No DOI resolution, no confirmation (unlike the CLI commands).",
+    "preconditions": "authenticated as curator",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "core/agent.py:approve,reject",
+    "code_issues": [
+      "No DOI->source_id resolution at the SDK layer (the CLI commands add it), so passing a DOI silently fails or mis-targets."
+    ]
+  },
+  {
+    "feature_id": "sdk-mdfagent-publish",
+    "area": "Skill/SDK",
+    "command": "MDFAgent.from_manifest(path).publish(dry_run=False, token=..., service_instance=..., progress_callback=..., on_files_resolved=..., on_file_done=...)",
+    "user_story": "As a CI/script, I want to publish a manifest dataset with upload progress hooks, so that I can integrate publishing into automation with feedback.",
+    "expected_behavior": "build_submission then, if not dry_run, does an auth_check (is_submitter gate, skipped if endpoint absent), uploads local data_sources via HTTPS PUT to the NCSA MDF collection (replacing paths with globus:// URIs, also creating a .mdf/data.zip archive for directories), then submit(). Returns the backend envelope. Accepts a legacy authorizer arg for back-compat.",
+    "preconditions": "mdf.yaml present; authenticated as a submitter; data files local or globus URIs",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "core/agent.py:publish,_upload_local_files,_https_put_file",
+    "code_issues": [
+      "auth_check failures are swallowed (except: pass), so on a backend lacking the endpoint a non-submitter proceeds to upload and only fails at submit (agent.py:722-728).",
+      "Uploads only happen when client._globus_data_token is set; with a bare MDF_CONNECT_TOKEN (no data token) local paths are submitted verbatim and never uploaded (agent.py:733-748)."
+    ]
+  },
+  {
+    "feature_id": "sdk-mdfagent-clone",
+    "area": "Skill/SDK",
+    "command": "MDFAgent().clone(source_id, output_dir, version=None, method='auto'|'https'|'transfer', progress_callback=..., stage_callback=...)  and .plan_clone(...)",
+    "user_story": "As a CI/script, I want to download a dataset by the best available method, so that I can fetch data programmatically with progress.",
+    "expected_behavior": "Resolves DOI->id, fetches the card, picks zip (if a non-directory download_url exists) / https (file-by-file from globus:// NCSA URIs) / transfer (Globus Transfer, requires local GCP endpoint). zip falls back to https on BadZipFile. Returns {success, method, files_count, path, ...}; partial https failures return success=False with errors. plan_clone returns the plan without downloading.",
+    "preconditions": "dataset exists; auth tokens for HTTPS/transfer; GCP endpoint for --transfer",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "core/agent.py:clone,plan_clone,_clone_via_zip,_clone_via_https,_clone_via_transfer",
+    "code_issues": [
+      "HTTPS clone only works for NCSA-collection globus:// URIs; non-NCSA sources are silently skipped with a stderr warning and can yield an empty download that still looks successful if any file resolves (agent.py:_resolve_globus_files)."
+    ]
+  },
+  {
+    "feature_id": "sdk-mdfagent-stream",
+    "area": "Skill/SDK",
+    "command": "MDFAgent.stream_create/stream_append/stream_status/stream_close/stream_snapshot(...)",
+    "user_story": "As a lab/script, I want programmatic stream lifecycle control, so that I can drive instrument streaming from code.",
+    "expected_behavior": "Each opens an authenticated client (service_instance default 'prod'), calls the matching client.stream_* method, closes, and returns the raw envelope. Mirrors the CLI 'mdf stream' group minus the actual file upload helper.",
+    "preconditions": "authenticated; stream exists for append/status/close/snapshot",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "core/agent.py:stream_create,stream_append,stream_status,stream_close,stream_snapshot",
+    "code_issues": [
+      "No SDK equivalent of 'mdf stream upload' (presigned/base64 file upload); SDK callers can register files via stream_append but cannot push bytes through the agent API."
+    ]
+  },
+  {
+    "feature_id": "extractor-registry",
+    "area": "Extractors",
+    "command": "discover_metadata(paths) -> dict  (used by mdf manifest discover, scan_folder)",
+    "user_story": "As a researcher/agent, I want files auto-classified to the right extractor, so that metadata is pulled without manual selection.",
+    "expected_behavior": "Iterates EXTRACTORS = [PDFExtractor, TabularExtractor, JsonYamlExtractor] in order; the first whose can_extract(path) matches by suffix runs extract(), and results are deep-merged across files. First match wins per file; unmatched files contribute nothing.",
+    "preconditions": "files exist and readable",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "extractors/registry.py:discover_metadata,EXTRACTORS",
+    "code_issues": [
+      "Extractor selection is purely by file extension (BaseExtractor.can_extract); a mislabeled file (e.g. JSON named .txt) is skipped silently with no metadata and no warning."
+    ]
+  },
+  {
+    "feature_id": "extractor-tabular",
+    "area": "Extractors",
+    "command": "TabularExtractor.extract(path)  for .csv/.tsv/.xlsx/.xls",
+    "user_story": "As a researcher, I want column schemas and row counts pulled from spreadsheets/CSVs, so that my manifest documents the table structure.",
+    "expected_behavior": "For .xlsx/.xls uses pandas (returns {} if pandas/read fails) and records columns with dtypes + row_count under mdf.table_schema. For CSV/TSV uses csv.reader: first row = headers, counts remaining rows; returns columns (names only) + row_count under mdf.table_schema. Any read error returns {}.",
+    "preconditions": "file readable; pandas installed for Excel",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "extractors/tabular.py:TabularExtractor",
+    "code_issues": [
+      "can_extract claims .tsv support but _extract_csv uses a default csv.reader (comma delimiter), so a real tab-separated file yields one giant malformed header column (tabular.py:42-49).",
+      "Each tabular file writes to the same mdf.table_schema key, so deep_merge across multiple CSVs in one discover run overwrites/merges into a single 'file' entry rather than preserving per-file schemas.",
+      "CSV path reads the whole file to count rows (sum over reader) — O(n) memory-light but slow for very large files; no row cap."
+    ]
+  },
+  {
+    "feature_id": "extractor-pdf",
+    "area": "Extractors",
+    "command": "PDFExtractor.extract(path)  for .pdf",
+    "user_story": "As a researcher, I want title/authors/DOI pulled from a paper PDF, so that my manifest is pre-filled from the publication.",
+    "expected_behavior": "Uses pypdf (returns {} if missing or load fails). Reads metadata title/author and scans page 1 text for a DOI regex. Emits DataCite-style dc.titles, dc.creators (author split on ';' or ', and '), and dc.relatedIdentifiers (DOI, IsPartOf). Returns {} if nothing found.",
+    "preconditions": "pypdf installed; readable PDF",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "extractors/pdf.py:PDFExtractor,DOI_PATTERN",
+    "code_issues": [
+      "Author splitting on ';' or ', and ' is brittle: 'Doe, J., Smith, A.' becomes one creatorName 'Doe, J., Smith, A.' since plain commas are not delimiters (pdf.py:45-48).",
+      "DOI scanned only from page 1; DOIs in the footer/later pages are missed."
+    ]
+  },
+  {
+    "feature_id": "extractor-json-yaml",
+    "area": "Extractors",
+    "command": "JsonYamlExtractor.extract(path)  for .json/.yml/.yaml",
+    "user_story": "As a researcher, I want the structure of JSON/YAML data files inferred, so that my manifest captures their schema.",
+    "expected_behavior": "Loads JSON or YAML (returns {} on read/parse error). Recursively infers a schema: dicts -> {key: schema}, lists -> [schema(first elem)] (or [] if empty), scalars -> python type name. Emits {mdf: {json_schema: {file, schema}}}.",
+    "preconditions": "file readable and parseable; PyYAML installed",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "extractors/json_yaml.py:JsonYamlExtractor",
+    "code_issues": [
+      "List schema inferred from only the first element, so heterogeneous arrays are mis-typed (json_yaml.py:44-45).",
+      "All json/yaml files share the single mdf.json_schema key, so multiple files in one discover run collapse to one 'file' entry under deep_merge."
+    ]
+  }
+]

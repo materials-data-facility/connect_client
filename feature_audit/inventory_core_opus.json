@@ -1,0 +1,368 @@
+[
+  {
+    "feature_id": "setup-onboarding",
+    "area": "Auth & Setup",
+    "command": "mdf setup [path]",
+    "user_story": "As a researcher new to MDF, I want a guided onboarding that records my defaults and scaffolds a manifest, so that I can publish without learning every flag first.",
+    "expected_behavior": "Interactive. Prompts for default service (default = config value or 'staging'), organization, publisher, and contact email; each non-empty answer is persisted to ~/.config/mdf_agent/config.json via cfg.set() (defaults.service, user.organization, user.publisher, user.email). Creates the target directory (default '.') with mkdir parents=True. Checks auth_ready(service) and prints green 'Auth ready' or yellow 'Not authenticated' with a login hint. If mdf.yaml exists it reports it; otherwise it lists detected data candidates via suggest_data_sources and, on confirm (default yes), calls manifest_init to create mdf.yaml (passing publisher/organization but NOT title/author/email). Prints 'Next steps'. No exit code on success (0); no network beyond is_logged_in token check.",
+    "preconditions": "interactive TTY for prompts/confirm; writable home config dir and target path",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "cli/main.py:456-538 (setup); cli/preflight.py:71-81 (auth_ready), :38-68 (suggest_data_sources); core/config.py:72-92",
+    "code_issues": [
+      "setup gathers user.email and prompts for it, but manifest_init is called without email and title/author/description (main.py:519-528), so the created mdf.yaml has no title/authors and will immediately fail validation on the next publish — the 'Next steps' then suggest `mdf publish --preflight-only` which will block on 'Missing required field: title'.",
+      "auth_ready returns True for service 'local' unconditionally (preflight.py:73-74), so setup prints 'Auth ready for local' even with zero credentials — misleading if the user later targets a remote service.",
+      "Final 'Next steps' check `if manifest_path.exists() or (root / 'mdf.yaml').exists()` is redundant — manifest_path IS root/'mdf.yaml' (main.py:510,533)."
+    ]
+  },
+  {
+    "feature_id": "login-interactive",
+    "area": "Auth & Setup",
+    "command": "mdf login [--service staging|prod|dev]",
+    "user_story": "As a researcher, I want to authenticate with Globus once via my browser, so that subsequent publish/clone commands reuse my cached credentials.",
+    "expected_behavior": "Resolves service (flag > config default > 'staging'). With no --token: computes the MDF Connect scope for the service and calls get_authorizer_for_scopes([connect_scope, DATA_MDF_SCOPE, TRANSFER_SCOPE, GROUPS_SCOPE]); if login_required, prints 'Opening browser for Globus authentication...' and opens a browser OAuth2 flow, caching refresh tokens to ~/.config/mdf_agent/tokens.json. Prints green 'Authentication ready' and the token store path. Exit 0 on success; raises/propagates on Globus failure.",
+    "preconditions": "browser available for the OAuth2 flow (unless already cached); network",
+    "auth_required": "no",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:545-577 (login); auth/globus.py:165-227 (get_authorizer_for_scopes), :67-79 (get_scopes_for_service)",
+    "code_issues": [
+      "staging resolves to MDF_CONNECT_SCOPE/prod resource server (globus.py:78-79) — login for 'staging' actually authenticates against prod Globus introspection; intended per comment but surprising and undocumented in the CLI help.",
+      "No try/except around the Globus login: a user who cancels the browser flow or has no network sees a raw stack trace rather than a friendly error (main.py:572-573)."
+    ]
+  },
+  {
+    "feature_id": "login-token",
+    "area": "Auth & Setup",
+    "command": "mdf login --token <ACCESS_TOKEN> [--service ...]",
+    "user_story": "As a CI/script operator, I want to supply an explicit access token to validate it, so that I can confirm credentials without an interactive browser flow.",
+    "expected_behavior": "With --token: calls get_authorizer(token=token, service_instance=resolved) which simply wraps the token in an AccessTokenAuthorizer (no validation/network call). Prints green 'Authentication ready', the token store path, and 'Using token from --token for this invocation.' Exit 0.",
+    "preconditions": "a token string provided",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "cli/main.py:568-577; auth/globus.py:82-125 (get_authorizer token branch returns AccessTokenAuthorizer without verification)",
+    "code_issues": [
+      "--token path performs NO verification — get_authorizer returns AccessTokenAuthorizer(token) immediately (globus.py:123-125), so `mdf login --token garbage` reports 'Authentication ready' even for an invalid/expired token. Misleading success message.",
+      "The token from --token is not persisted to the token store, yet the message prints the token store path, implying it was stored (main.py:575). It only applies 'for this invocation' but the command does nothing with it afterward."
+    ]
+  },
+  {
+    "feature_id": "logout",
+    "area": "Auth & Setup",
+    "command": "mdf logout",
+    "user_story": "As a researcher on a shared machine, I want to clear my cached Globus credentials, so that no one else can publish as me.",
+    "expected_behavior": "Deletes ~/.config/mdf_agent/tokens.json if present (logout() unlinks the file and prints 'Logged out and cleared cached tokens.' to stdout, returns True). CLI then prints green 'Logged out'. If no token file exists, prints yellow 'No cached token file found (<path>)'. Exit 0 either way.",
+    "preconditions": "none",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "cli/main.py:580-589; auth/globus.py:230-243 (logout)",
+    "code_issues": [
+      "logout() prints its own line 'Logged out and cleared cached tokens.' via print() in addition to the CLI's rich 'Logged out' — double success message (globus.py:241 + main.py:587).",
+      "Only removes the token file; it does not revoke tokens at Globus, so the access/refresh tokens remain valid server-side until expiry — arguably a security gap for the stated 'shared machine' use."
+    ]
+  },
+  {
+    "feature_id": "status-auth",
+    "area": "Auth & Setup",
+    "command": "mdf status --auth [--service ...] [--json]",
+    "user_story": "As a researcher, I want to see whether I'm authenticated and by which method, so that I can debug why a publish was rejected.",
+    "expected_behavior": "With --auth: determines method by precedence env_client (MDF_CLIENT_ID+MDF_CLIENT_SECRET) > env_token (MDF_CONNECT_TOKEN) > cached Globus login (is_logged_in), else None. status='authenticated' if any method else 'not authenticated'. Prints Service, Status, Method, Token store path, and dim notes if env vars set. --json prints the dict. No network call (is_logged_in only inspects the local token store). Exit 0.",
+    "preconditions": "none",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "cli/main.py:596-663 (status --auth branch); auth/globus.py:246-272 (is_logged_in)",
+    "code_issues": [
+      "is_logged_in only checks login_required against the local store; tokens may be expired-but-present and still report 'authenticated' (globus.py:272). For dev service it uses the dev resource server but for staging uses prod, so cached staging tokens are evaluated against prod scope — can falsely report authenticated/unauthenticated for staging.",
+      "Duplicate of the hidden `whoami` command (main.py:1695-1724) which uses different precedence (doesn't surface confidential-client method) — two sources of truth for 'am I authenticated'."
+    ]
+  },
+  {
+    "feature_id": "status-default",
+    "area": "Auth & Setup",
+    "command": "mdf status [source_id] [--version V] [--json] [--service ...]",
+    "user_story": "As a researcher, I want to check the backend status of a dataset (or my last published one), so that I know whether it's pending, approved, or published.",
+    "expected_behavior": "Resolves service. lookup_id = source_id arg, else config.last_source_id; if neither, prints a dim usage hint and returns (exit 0, no error). Builds an authenticated BackendClient, resolves DOI->source_id if needed (printing a notice), shows a spinner 'Checking status...', calls GET /status/{id}. --json dumps raw. Otherwise _render_status_details prints source_id, version, status badge, title, DOI link, transfer progress, version lineage, curator feedback, and a context-sensitive 'Next/Try' hint per status. Exit 0.",
+    "preconditions": "authenticated (client.authenticated requires creds for non-local); network",
+    "auth_required": "partial",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:665-715; :221-287 (_render_status_details); core/backend_client.py:179-181 (status)",
+    "code_issues": [
+      "When no source_id and no last_source_id, it prints to stdout and returns exit code 0 — scripts can't distinguish 'no dataset' from 'status ok' (main.py:669-672).",
+      "BackendClient.authenticated will trigger an interactive Globus browser login if no token/dev-user is present and service is not local (backend_client.py:130-140), so a non-interactive `mdf status` can unexpectedly block on a browser prompt."
+    ]
+  },
+  {
+    "feature_id": "status-watch",
+    "area": "Auth & Setup",
+    "command": "mdf status --watch [source_id] [--interval N] [--timeout N] [--json]",
+    "user_story": "As a researcher, I want to poll a submission until it reaches a terminal state, so that I can leave it running and know when curation finishes.",
+    "expected_behavior": "Resolves DOI->source_id, then loops every --interval seconds (default 10) until timeout (default 1800s). Terminal states: published, rejected, failed, deleted, withdrawn. On each poll prints a status badge with elapsed seconds (or JSON line). On timeout prints yellow 'Timeout after Ns' and exits 1. On terminal state prints details; exits 0 only for 'published', else 1. Per-iteration backend errors are printed and retried (do not abort). Exits via typer.Exit(code) returned from _watch_submission.",
+    "preconditions": "authenticated; network",
+    "auth_required": "partial",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:674-697 (watch branch); :290-360 (_watch_submission)",
+    "code_issues": [
+      "_watch_submission re-creates and closes a BackendClient on every poll (main.py:318-326) — for interactive Globus auth this could re-trigger login logic each iteration; inefficient even with cached tokens.",
+      "Backend errors loop forever until timeout with no consecutive-failure cap (main.py:327-333) — a permanently-down backend silently spins for the full timeout.",
+      "A duplicate hidden `watch` command exists (main.py:1727-1770) with a different default interval handling, overlapping this feature."
+    ]
+  },
+  {
+    "feature_id": "publish-dryrun",
+    "area": "Publishing",
+    "command": "mdf publish [data...] --title T --author A   (default; no --submit)",
+    "user_story": "As a researcher, I want to preview the exact submission payload before sending it, so that I can verify metadata and file scope without committing.",
+    "expected_behavior": "dry_run defaults True (--dry-run/--submit toggle). Runs run_preflight (submit=False -> local checks only, no auth/health). If preflight blocks, renders issues and exits 1. Otherwise builds payload via build_submission(test, update) and, in dry-run, renders the preflight panel, prints 'Dry run - would submit:', target URL+service, the JSON payload (syntax-highlighted), and 'Ready to publish. Run: mdf publish --submit'. --json emits {success, dry_run, payload, preflight}. Exit 0. No upload, no config change.",
+    "preconditions": "direct mode requires --title and --author; manifest mode requires mdf.yaml in cwd",
+    "auth_required": "no",
+    "network_required": "no",
+    "source_refs": "cli/main.py:722-842; cli/preflight.py:134-292; core/submission.py:103-181; core/agent.py:684-705 (publish dry_run short-circuit)",
+    "code_issues": [
+      "Dry-run preflight passes submit=False so it never checks auth or backend health — the 'Ready to publish' message can be shown even when the user is not authenticated and --submit will then fail at preflight, contradicting the optimistic message (main.py:801-809,840-841).",
+      "build_submission raises ValueError (not a friendly message) if title/authors missing in manifest mode where overrides didn't fill them; in direct mode this is guarded, but manifest mode with an incomplete mdf.yaml relies on preflight catching it first (submission.py:126-127)."
+    ]
+  },
+  {
+    "feature_id": "publish-direct",
+    "area": "Publishing",
+    "command": "mdf publish ./data/ --title T --author A [--author B] --submit",
+    "user_story": "As a researcher, I want to publish a local directory in one command by passing data plus title/author, so that I don't have to create a manifest first.",
+    "expected_behavior": "When data args are present, BOTH --title and --author are required: missing --title prints red 'Direct mode requires --title' + example and exits 1; missing --author likewise exits 1. Builds an in-memory ManifestConfig (title, authors, description, data_sources=data, publisher/organization from GlobalConfig). Runs submit-time preflight (submit=True: auth_ready + backend /health). On block, exits 1. On --submit, uploads local files via HTTPS PUT to the MDF collection (replacing paths with globus:// URIs, plus a .mdf/data.zip archive for directories), shows two-tier rich progress on a TTY, POSTs /submit, prints 'Published successfully!' with source_id/version, records last_publish to config, and auto-watches until pending_curation (unless --no-watch).",
+    "preconditions": "authenticated (token/dev-user/confidential-client/cached login); data paths exist; network",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:762-781 (direct mode + required-flag guards), :800-988 (preflight/upload/progress/watch); core/agent.py:688-755 (publish upload), :196-343 (_upload_local_files); core/backend_client.py:176-177 (submit)",
+    "code_issues": [
+      "Upload only happens when client._globus_data_token is set (agent.py:734). With MDF_CONNECT_TOKEN-only auth (no data token), local files are submitted as raw local filesystem paths in data_sources — the backend cannot fetch them, producing a broken submission with no client-side warning.",
+      "auth_check() pre-flight ('is_submitter') is swallowed by a bare except (agent.py:722-728), so an unauthorized user proceeds to upload all files and only fails at /submit — wasted bandwidth.",
+      "Upload errors raise RuntimeError mid-flight; already-uploaded files are left on the collection with no cleanup (agent.py:312-315).",
+      "Direct mode ignores any keywords/year/license — only title/author/description/data are wired (main.py:773-780), so direct-mode datasets are metadata-poor."
+    ]
+  },
+  {
+    "feature_id": "publish-manifest",
+    "area": "Publishing",
+    "command": "mdf publish --submit   (uses ./mdf.yaml)",
+    "user_story": "As a researcher with a curated mdf.yaml, I want to publish the current directory by running one command, so that all my metadata is reused.",
+    "expected_behavior": "When no data args but ./mdf.yaml exists, loads agent via from_manifest('.'). If manifest has no data_sources, defaults them to ['.']. Runs submit-time preflight; auto-scan of visible files happens at build time (build_submission scans root.rglob excluding mdf.yaml/.gitignore/hidden). Same upload+progress+watch flow as direct mode. With neither data nor mdf.yaml, prints red 'No data paths provided and no mdf.yaml found' with mode hints and exits 1.",
+    "preconditions": "./mdf.yaml present with title+authors; authenticated; network",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:783-799; core/agent.py:631-638 (from_manifest), :684-687 (build_submission); core/submission.py:132-144 (auto-scan)",
+    "code_issues": [
+      "data_sources defaulted to ['.'] when empty (main.py:791-792), but submission.py also auto-scans the directory — and _upload_local_files treats '.' as a directory, uploading the entire cwd including mdf.yaml itself (the upload path does NOT apply the _SKIP_FILENAMES filter that preflight/build use). Potentially uploads mdf.yaml and hidden files via the zip archive path differently than the preflight reported.",
+      "from_manifest raises NoManifestError if mdf.yaml disappears between the exists() check and load — a TOCTOU, though narrow."
+    ]
+  },
+  {
+    "feature_id": "publish-manifest-overrides",
+    "area": "Publishing",
+    "command": "mdf publish --title 'New Title' --author A --submit  (with mdf.yaml)",
+    "user_story": "As a researcher, I want to override individual manifest fields on the command line, so that I can tweak title/authors/description without editing mdf.yaml.",
+    "expected_behavior": "In manifest mode, if --title/--author/--description are passed they overwrite agent.manifest.title/authors/description respectively before preflight and build. data_sources still default to ['.'] if empty. Proceeds through the same preflight/upload/watch flow.",
+    "preconditions": "./mdf.yaml present; authenticated; network",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:783-792 (override assignment)",
+    "code_issues": [
+      "--author override REPLACES the manifest authors list entirely rather than appending (main.py:788), which is reasonable but undocumented — a user adding one author silently drops the manifest's existing authors."
+    ]
+  },
+  {
+    "feature_id": "publish-preflight-only",
+    "area": "Publishing",
+    "command": "mdf publish [data...] --preflight-only [--submit] [--json]",
+    "user_story": "As a CI pipeline, I want to run submit-time checks (auth + backend reachability + data scope) without uploading, so that I can gate a pipeline before the expensive submit.",
+    "expected_behavior": "Runs run_preflight with submit=True (regardless of dry_run), then renders the preflight panel (or JSON) and returns WITHOUT building/uploading. Exit 1 if preflight has blocking issues, else 0. Submit-time preflight verifies auth_ready(service) and pings backend /health at the target URL; data-source existence/empty/include-pattern checks always run.",
+    "preconditions": "data or mdf.yaml resolvable; network for health check",
+    "auth_required": "partial",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:801-818; cli/preflight.py:250-292 (submit-time auth+health checks)",
+    "code_issues": [
+      "Health check constructs an UNauthenticated BackendClient(base_url=service_target) (preflight.py:261), so /health is checked but auth_ready is a purely local check (env/token-store presence) — neither validates that the token actually works against the backend. A bad-but-present token passes preflight then fails at /submit.",
+      "If service_target (api_url or MDF_API_URL) is None, the health check is silently skipped (preflight.py:259) — for default services the real API URL from _api_url_for_service is passed by the caller, but the `validate` hidden command calls run_preflight without api_url, so its submit checks never hit health."
+    ]
+  },
+  {
+    "feature_id": "publish-test",
+    "area": "Publishing",
+    "command": "mdf publish ... --test --submit",
+    "user_story": "As a researcher, I want to submit to the test/sandbox environment, so that I can rehearse a real submission without polluting production curation.",
+    "expected_behavior": "Sets test=True on build_submission/publish; the flag is carried into the Submission payload (test field) and sent to /submit. No separate endpoint — same backend, payload-level flag. Otherwise identical to the chosen mode.",
+    "preconditions": "authenticated; network",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:728,828,929-940; core/submission.py:154 (test=test); core/agent.py:684-687",
+    "code_issues": [
+      "--test only sets a payload flag; whether the backend honors it for the selected --service is opaque to the user, and there is no CLI confirmation echoing 'test mode' in the success output (main.py:956-964)."
+    ]
+  },
+  {
+    "feature_id": "publish-update",
+    "area": "Publishing",
+    "command": "mdf publish [data...] --title T --author A --update --submit",
+    "user_story": "As a researcher, I want to publish a new version of an existing dataset, so that corrections or added data create a versioned update.",
+    "expected_behavior": "Sets update=True on build_submission/publish. In direct mode --title and --author are still required. The Submission payload carries update=True. Success prints status pending_curation, records last_publish, and auto-watches. NOTE: this `publish --update` flow does NOT itself resolve or attach an existing source_id; it relies on title/extensions matching at the backend. (The dedicated `mdf update` hidden command is the source-id-aware path.)",
+    "preconditions": "authenticated; existing dataset; network",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:730,828,929-940; core/submission.py:155 (update=update)",
+    "code_issues": [
+      "`publish --update` provides no way to specify WHICH dataset to update (no source_id wiring) — it just flags update=True on a fresh payload built from --title/--author. The matching is entirely backend-dependent and undocumented; users likely expect to pass a source_id. The real update-by-id path is the separate hidden `update` command.",
+      "Help text advertises '--update / -u Update existing dataset' (main.py:730) but doesn't explain the missing source linkage."
+    ]
+  },
+  {
+    "feature_id": "publish-nowatch",
+    "area": "Publishing",
+    "command": "mdf publish ... --submit --no-watch",
+    "user_story": "As a CI/script operator, I want to submit and return immediately instead of polling, so that my pipeline doesn't block on curation.",
+    "expected_behavior": "After a successful submit, with --no-watch the command prints the success block plus a 'Watch: mdf status --watch <id>' hint and returns (exit 0) without entering the watch loop. Without --no-watch, it enters _watch_submission(interval=5, timeout=1800, stop_on_statuses={'pending_curation'}) and exits with that loop's code.",
+    "preconditions": "authenticated; network",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:733,966-985 (no_watch branch + auto-watch)",
+    "code_issues": [
+      "Auto-watch (default) uses stop_on_statuses={'pending_curation'} with a 1800s timeout; if the backend never reports pending_curation (e.g. instantly approved or stuck), the command exits 1 on timeout even though the publish itself succeeded — a successful publish can yield a non-zero exit (main.py:972-985)."
+    ]
+  },
+  {
+    "feature_id": "publish-json",
+    "area": "Publishing",
+    "command": "mdf publish ... --json [--submit]",
+    "user_story": "As a script, I want machine-readable publish output, so that I can parse source_id/version programmatically.",
+    "expected_behavior": "With --json: preflight-only emits the preflight dict; dry-run emits {success, dry_run, payload, preflight}; a blocked preflight emits {success:false, preflight}; a real submit emits the raw backend result and exits 1 if result.success is false. Note: in --json mode the auto-watch loop is bypassed only implicitly — the success branch still calls _watch_submission unless --no-watch (json_output is not propagated into that watch call for publish).",
+    "preconditions": "as per mode",
+    "auth_required": "partial",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:812-813,821-822,831-833,950-954,972-985",
+    "code_issues": [
+      "In --json publish-and-submit, after printing the JSON result the code still falls through to the human-readable success branch and may enter _watch_submission WITHOUT json_output=True (main.py:950-985) — wait: the json branch returns at :954 only when success; on success it returns, so the watch is skipped for --json. But that means --json --submit never watches and never records... actually record_publish is in the non-json branch only (main.py:966-968), so --json --submit does NOT persist last_publish to config. Inconsistent side-effect between json and non-json.",
+      "record_publish/cfg update happens only in the non-JSON path (main.py:966-968), so JSON consumers lose the last_source_id convenience."
+    ]
+  },
+  {
+    "feature_id": "update-by-id",
+    "area": "Publishing",
+    "command": "mdf update [source_id] --data ./new/ --submit  (hidden; alias of publish --update)",
+    "user_story": "As a researcher, I want to update a specific existing dataset by its source_id (or my last published one), so that the new version is correctly linked to the original.",
+    "expected_behavior": "Hidden command. source_id arg, else config.last_source_id (prints 'Using last published dataset'); if neither, red error + exit 1. Fetches existing card to prefill title/authors (best-effort, swallows errors). Builds ManifestConfig with custom={'mdf_source_id': source_id}, data_sources from --data. Runs submit-time preflight; --preflight-only and --dry-run/--submit behave like publish. On submit, uploads (using source_id for deterministic /mdf_open/{id}/ upload paths), POSTs with update=True, prints 'Updated successfully!', records last_publish, auto-watches unless --no-watch.",
+    "preconditions": "authenticated; existing source_id resolvable; network",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:2014-2262 (update_alias); core/agent.py:735-738 (upload_source_id from extensions.mdf_source_id)",
+    "code_issues": [
+      "mdf_source_id is stored in manifest.custom (main.py:2077) but build_submission/Submission must surface it as extensions.mdf_source_id for the deterministic upload path (agent.py:736-737) — need to verify ManifestConfig.to_metadata_payload maps custom->extensions; if it doesn't, the update uploads to a /tmp/_uploads/{uuid} path and the backend may not associate files with the existing dataset.",
+      "If --data is omitted, data_sources is [] and authors default to [resolved_source_id]; preflight then blocks on 'Missing data_sources (or set update_metadata_only)' since update_metadata_only is never set — metadata-only updates are impossible through this command (main.py:2068-2076; validation.py:50-51).",
+      "Two code paths for 'update' (publish --update and this hidden update) with divergent semantics is confusing and duplicative."
+    ]
+  },
+  {
+    "feature_id": "clone-auto",
+    "area": "Download",
+    "command": "mdf clone <source_id|DOI> [output_dir]",
+    "user_story": "As a researcher, I want to download a dataset using the fastest available method automatically, so that I get the files locally without choosing a transport.",
+    "expected_behavior": "Resolves service; method='auto'. Resolves DOI->source_id, fetches the card; if not found prints clone failure and exits 1. Plans method: if download_url is a non-directory URL -> 'zip'; else 'https'. Default output_dir = last path component of the id/DOI. Renders a clone plan panel, then downloads: zip path streams+extracts the archive (falls back to file-by-file HTTPS on BadZipFile); https path resolves globus:// NCSA URIs to HTTPS and downloads in parallel (5 workers). Shows two-tier rich progress. On success prints 'Clone complete!' with method/files/path. Partial HTTPS failures print failed files and exit 1.",
+    "preconditions": "authenticated for data token (HTTPS needs _globus_data_token); network; dataset exists",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:994-1208 (clone); core/agent.py:1030-1252 (clone/plan/_prepare_clone), :1254-1353 (zip/https)",
+    "code_issues": [
+      "HTTPS download requires _globus_data_token; with token-only auth (no data token) clone gets data_token='' (agent.py:1202) and every file 401s — the partial-failure path then lists all files as failed with no clear 'you need to log in for a data token' hint.",
+      "Default output_dir derives from the DOI's last path segment (main.py:1035-1037) which for a DOI like 10.18126/abcd yields 'abcd' — fine, but the plan is computed BEFORE this is reconciled with the resolved source_id, so the directory name may not match the resolved dataset id.",
+      "Non-NCSA globus:// sources are skipped with a stderr warning and may yield 'No HTTPS-downloadable files found' (agent.py:457-463, 1226-1230) — the only recovery is --transfer, surfaced only in the error string."
+    ]
+  },
+  {
+    "feature_id": "clone-zip-vs-https",
+    "area": "Download",
+    "command": "mdf clone <id>   (zip archive path or HTTPS fallback)",
+    "user_story": "As a researcher, I want clone to grab a single dataset archive when one exists, so that download is fast, but still work file-by-file when it doesn't.",
+    "expected_behavior": "If the card exposes a non-directory download_url, selected_method='zip': downloads the archive to a temp file with byte progress, extracts all members into output_dir, reports files_count = member count. If the downloaded body is not a valid zip (zipfile.BadZipFile), prints a note to stderr, emits a 'falling_back_to_https' stage, and retries via HTTPS file-by-file. HTTPS path reports partial=True when some files fail but some succeed.",
+    "preconditions": "authenticated; network",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "core/agent.py:1090-1135 (zip/fallback), :1254-1290 (_clone_via_zip), :1292-1353 (_clone_via_https)",
+    "code_issues": [
+      "Zip extraction uses zf.extractall(out) (agent.py:1277) with no path-traversal sanitization — a malicious archive with '../' members could write outside output_dir (Zip Slip). The upload-side _create_zip_archive guards symlinks but the download-side extract does not.",
+      "files_count for zip is len(zf.namelist()) which counts directory entries too, overstating the file count shown to the user (agent.py:1274-1278)."
+    ]
+  },
+  {
+    "feature_id": "clone-transfer",
+    "area": "Download",
+    "command": "mdf clone <id> --transfer",
+    "user_story": "As a researcher with large datasets and a Globus endpoint, I want to queue a Globus Transfer, so that bulk download is reliable and resumable outside the CLI.",
+    "expected_behavior": "method='transfer'. Requires a local Globus Connect Personal endpoint (detected via SDK or globus.local_endpoint_id config); if none, raises RuntimeError 'Globus Transfer requires a local endpoint...' which the CLI catches and prints as red Error, exit 1. Otherwise builds a TransferData for the first globus:// source, submits it, and returns success with task_id and monitor_url (https://app.globus.org/activity/{task_id}). CLI prints 'Transfer queued!' with task/monitor info. If no globus:// sources, returns failure.",
+    "preconditions": "GCP endpoint installed or local_endpoint_id configured; transfer token (auth); network",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:999,1027 (transfer flag); core/agent.py:1355-1414 (_clone_via_transfer), :564-580 (_detect_gcp_endpoint)",
+    "code_issues": [
+      "_clone_via_transfer only handles the FIRST globus:// source then returns (agent.py:1378-1412) — datasets whose files span multiple globus endpoints/sources get only one transfer queued; the rest are silently dropped.",
+      "Transfer requires transfer_token; with token-only/dev-user auth transfer_token is '' and TransferClient calls will 401 at submit_transfer with an unhandled globus error rather than a friendly message."
+    ]
+  },
+  {
+    "feature_id": "clone-derive",
+    "area": "Download",
+    "command": "mdf clone <id> --derive",
+    "user_story": "As a researcher building a derivative dataset, I want clone to scaffold an mdf.yaml that records derived-from lineage, so that provenance is captured from the start.",
+    "expected_behavior": "After a successful clone, if --derive is set, initializes an mdf.yaml in output_dir via MDFAgent.init_manifest(title='Derived from <id>', authors=['Unknown']), sets manifest.derived_from=[DerivedFrom(source_id=<resolved id>, relationship='derived')], and saves it. The success render then prints 'Created mdf.yaml with derived-from lineage'.",
+    "preconditions": "successful clone; writable output_dir",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:1195-1208 (derive branch); core/agent.py:605-629 (init_manifest)",
+    "code_issues": [
+      "--derive in --json mode is skipped entirely because the json branch returns before the derive block (main.py:1188-1193 returns; derive at 1195+ unreachable for --json) — JSON users silently get no derived mdf.yaml despite passing --derive.",
+      "Generated manifest has placeholder title 'Derived from X' and authors=['Unknown'] which will fail validation on a later publish without edits — acceptable scaffold but unguided."
+    ]
+  },
+  {
+    "feature_id": "import-zenodo-dryrun",
+    "area": "Import",
+    "command": "mdf import zenodo:<ID>   (default preview)",
+    "user_story": "As a curator, I want to preview the metadata MDF would import from a Zenodo record, so that I can confirm authors/files/license before cross-publishing.",
+    "expected_behavior": "Resolves an adapter via resolve_adapter (Zenodo matches zenodo:ID or https://zenodo.org/record[s]/ID). Fetches metadata from the public Zenodo API (no auth). Renders a metadata panel (source, title, authors, truncated description, keywords, license, DOI, URL, file count + total size). In dry-run (default) prints up to 10 filenames with sizes and 'Ready to import. Run: mdf import <id> --submit'. --json emits {success, dry_run, metadata}. Exit 0. No download, no auth.",
+    "preconditions": "valid zenodo identifier; network to zenodo.org",
+    "auth_required": "no",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:2269-2348 (import dry-run); importers/registry.py:16-21; importers/zenodo.py:28-107",
+    "code_issues": [
+      "Only Zenodo is registered (registry.py:11-13) despite the command help/argument implying 'external repositories (Zenodo, etc.)' — any non-Zenodo identifier prints 'No adapter found' (main.py:2295-2298).",
+      "Zenodo license mapping uses lic['id'] as the human 'name' (zenodo.py:69-73) — shows the license slug (e.g. 'cc-by-4.0') as 'name' which is acceptable but the panel label says License with a slug, not a human title."
+    ]
+  },
+  {
+    "feature_id": "import-zenodo-submit",
+    "area": "Import",
+    "command": "mdf import zenodo:<ID> --submit [-o DIR] [--test] [--no-watch]",
+    "user_story": "As a curator, I want to download a Zenodo record's files and cross-publish them to MDF with provenance back to the original DOI, so that the dataset is discoverable in MDF.",
+    "expected_behavior": "Fetches metadata, then agent.import_external downloads every file via streaming HTTPS GET into output_dir (default = sanitized title) showing download progress, and builds a ManifestConfig with external_doi/external_url/external_source set (provenance) and data_sources=['.']. Then constructs a second agent rooted at the download dir and calls publish(test, dry_run=False) which uploads the files to MDF storage (separate upload progress UI) and POSTs /submit. On success prints 'Published successfully!' with source_id and the external DOI, records last_publish, and auto-watches to pending_curation unless --no-watch. Import/upload failures print red error and exit 1.",
+    "preconditions": "authenticated for the publish/upload phase; network",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "cli/main.py:2350-2597 (import submit+publish); core/agent.py:1416-1524 (import_external)",
+    "code_issues": [
+      "resolve_service(service) is only called inside the --submit branch (main.py:2359), AFTER the dry-run early-return — fine, but the import-submit phase runs NO preflight/auth check before downloading potentially large Zenodo files; auth is only exercised when publish() runs, so a download can complete and then fail at submit for lack of credentials.",
+      "import_external downloads Zenodo files with NO Authorization header and NO retry logic (agent.py:1466-1490), unlike the hardened _download_https_file — a transient 503 aborts the whole import with an unhandled httpx error.",
+      "The publish phase calls agent_pub.publish WITHOUT update support and ignores any existing MDF dataset for the same external DOI — re-importing the same Zenodo record creates a duplicate MDF dataset rather than a new version.",
+      "Output dir default is derived from the title (agent.py:1454-1456) while the CLI also lets -o override; if files share names across nested Zenodo paths they could collide since filename = key with parents flattened (agent.py:1473)."
+    ]
+  },
+  {
+    "feature_id": "auth-resolution-confidential",
+    "area": "Auth & Setup",
+    "command": "(env) MDF_CLIENT_ID + MDF_CLIENT_SECRET   (used by all write/clone commands)",
+    "user_story": "As a CI/automation operator, I want to authenticate non-interactively with a Globus confidential client, so that scheduled publishes and clones run without a browser.",
+    "expected_behavior": "BackendClient.authenticated resolution order: (1) explicit --token, (2) MDF_CONNECT_TOKEN, (3) MDF_CLIENT_ID+MDF_CLIENT_SECRET confidential client_credentials grant for scopes connect+DATA_MDF+TRANSFER (yielding service token + data token + transfer token, enabling uploads/clone), (4) dev_user_id / MDF_DEV_USER_ID (X-User-Id header), (5) for service 'local' an anonymous client, (6) interactive Globus OAuth2 login. The data/transfer tokens enable HTTPS upload and clone without interactive login.",
+    "preconditions": "valid confidential client registered with required scopes; network",
+    "auth_required": "yes",
+    "network_required": "yes",
+    "source_refs": "core/backend_client.py:64-165 (authenticated); auth/globus.py:67-79 (scopes)",
+    "code_issues": [
+      "Confidential-client flow does NOT request the GROUPS_SCOPE (backend_client.py:107) while the interactive flow does (line 139) — so the backend's group-membership check may behave differently between CI and interactive auth; a CI submitter could fail is_submitter checks that an interactive user passes.",
+      "If the confidential grant succeeds but service_token is empty (resource server mismatch), the code silently falls through to dev_user/local/interactive (backend_client.py:121-140) — in CI with no DISPLAY this then tries an interactive browser login and hangs.",
+      "GROUPS_SCOPE token (X-Groups-Token) is only populated on the interactive path; the confidential path never sets _groups_token, so group checks relying on that header silently degrade for automation."
+    ]
+  }
+]

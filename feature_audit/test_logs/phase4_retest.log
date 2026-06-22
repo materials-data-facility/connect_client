@@ -1,0 +1,128 @@
+== mdf --version ==
+mdf 0.2.0
+  exit 0
+
+################ $ mdf show mobility_5d_v1.1
+
+╭───────────────────────────────────── mobility_5d_v1.1 v1.0 ──────────────────────────────────────╮
+│ Reduced grain boundary mobilities in pure iron                                                   │
+│ Reduced grain boundary mobilities of 344 boundaries in pure iron measured by a fitting method    │
+│ described in *Grain boundary mobilities in polycrystals*, *Acta Materialia* 191 (2020) 211-220.  │
+│ The first three columns are components of the Rodrigues vector (in the fundamental zone of the   │
+│ 3D Rodrigues space) of the misorientation of the boundary. Columns 4 to 6 are components of the  │
+│ inclination (grain boundary normal in crystal coordinates) in the crystal coordinates of the     │
+│ first grain. Columns 7 to 9 are components of the inclination in the crystal coordinates of the  │
+│ second grain. Column 10 is the reduced grain boundary mobility in the unit of μm<sup>2</sup>/s.  │
+│ This is the data used to plot Fig. 4 in the publication.                                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+                                                                                                    
+   Authors             Zhang, Jin, Ludwig, Wolfgang, Zhang, Yubin, Sørensen, Hans Henrik B.,        
+                       Rowenhorst, David J., Yamanaka, Akinori, Voorhees, Peter W., Poulsen,        
+                       Henning F.                                                                   
+   Publisher           Materials Data Facility                                                      
+   Year                2020                                                                         
+   Organization        MDF Open                                                                     
+   Keywords            experiment, metals and alloys, grain boundary mobilities                     
+   DOI                 https://doi.org/10.18126/qh91-00tw                                           
+   License             CC-BY 4.0                                                                    
+   Status              * published                                                                  
+                                                                                                    
+
+Files: 1 sources | Types: unknown
+
+Next: mdf dataset open mobility_5d_v1.1 | mdf dataset cite mobility_5d_v1.1 | mdf dataset preview 
+mobility_5d_v1.1
+
+  -> exit 0
+
+################ $ mdf dataset cite mobility_5d_v1.1 -f bibtex
+
+╭───────────────────────────────────────────── BibTeX ─────────────────────────────────────────────╮
+│ @dataset{mobility_5d_v1_1_2020,                                                                  │
+│   author = {Zhang, Jin and Ludwig, Wolfgang and Zhang, Yubin and Sørensen, Hans Henrik B. and    │
+│ Rowenhorst, David J. and Yamanaka, Akinori and Voorhees, Peter W. and Poulsen, Henning F.},      │
+│   title = {{Reduced grain boundary mobilities in pure iron}},                                    │
+│   year = {2020},                                                                                 │
+│   publisher = {Materials Data Facility},                                                         │
+│   version = {1.0},                                                                               │
+│   doi = {10.18126/qh91-00tw},                                                                    │
+│   url = {https://doi.org/10.18126/qh91-00tw},                                                    │
+│   note = {MDF Source ID: mobility_5d_v1.1},                                                      │
+│ }                                                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+  -> exit 0
+
+################ $ mdf related mobility_5d_v1.1 --limit 3
+
+3 related dataset(s) sharing authors with mobility_5d_v1.1
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━━━━━━━┓
+┃ Source ID                    ┃ Title                        ┃ Shared ┃ Year ┃ DOI                ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━━━━━━━┩
+│ pub_7_gibbs_segmentation_v1… │ Dataset for Segmentation of  │      1 │ 2016 │ 10.18126/M2CC73    │
+│                              │ Four-dimensional, X-ray      │        │      │                    │
+│                              │ Computed Tomography Data     │        │      │                    │
+│ hanus_heat_capacity_pbte_v1… │ Heat capacity of undoped     │      1 │ 2020 │ 10.18126/1obf-bje9 │
+│                              │ PbTe                         │        │      │                    │
+│ pub_8_gibbs_liquidsolid_v1.2 │ Liquid-solid Metallic        │      1 │ 2016 │ 10.18126/M27P4T    │
+│                              │ Mixture Coarsening Data -    │        │      │                    │
+│                              │ 28% Solid                    │        │      │                    │
+└──────────────────────────────┴──────────────────────────────┴────────┴──────┴────────────────────┘
+  -> exit 0
+
+################ $ mdf dataset open mobility_5d_v1.1 --url
+https://doi.org/10.18126/qh91-00tw
+  -> exit 0
+
+################ $ mdf backend health
+Error: Unknown error
+  -> exit 0
+
+################ $ mdf backend card mobility_5d_v1.1
+
+╭───────────────────────────────────── mobility_5d_v1.1 v1.0 ──────────────────────────────────────╮
+│ Reduced grain boundary mobilities in pure iron                                                   │
+│ Reduced grain boundary mobilities of 344 boundaries in pure iron measured by a fitting method    │
+│ described in *Grain boundary mobilities in polycrystals*, *Acta Materialia* 191 (2020) 211-220.  │
+│ The first three columns are components of the Rodrigues vector (in the fundamental zone of the   │
+│ 3D Rodrigues space) of the misorientation of the boundary. Columns 4 to 6 are components of the  │
+│ inclination (grain boundary normal in crystal coordinates) in the crystal coordinates of the     │
+│ first grain. Columns 7 to 9 are components of the inclination in the crystal coordinates of the  │
+│ second grain. Column 10 is the reduced grain boundary mobility in the unit of μm<sup>2</sup>/s.  │
+│ This is the data used to plot Fig. 4 in the publication.                                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+                                                                                                    
+   Authors             Zhang, Jin, Ludwig, Wolfgang, Zhang, Yubin, Sørensen, Hans Henrik B.,        
+                       Rowenhorst, David J., Yamanaka, Akinori, Voorhees, Peter W., Poulsen,        
+                       Henning F.                                                                   
+   Publisher           Materials Data Facility                                                      
+   Year                2020                                                                         
+   Organization        MDF Open                                                                     
+   Keywords            experiment, metals and alloys, grain boundary mobilities                     
+   DOI                 https://doi.org/10.18126/qh91-00tw                                           
+   Status              published                                                                    
+                                                                                                    
+
+Files: 1 sources | Types: unknown
+
+  -> exit 0
+
+################ $ mdf backend search iron --limit 2
+
+Found 7 results for 'iron':
+
+  1. [DATASET] Reduced grain boundary mobilities in pure iron
+     source_id: mobility_5d_v1.1 v1.0
+     status: published | authors: Zhang, Jin, Ludwig, Wolfgang, Zhang, Yubin, Sørensen, Hans Henrik B., Rowenhorst, David J., Yamanaka, Akinori, Voorhees, Peter W., Poulsen, Henning F.
+
+  2. [DATASET] Dataset for "Utilizing Essential Symmetry Breaking in Auxiliary-Field Quantum Monte Carlo: Application to the Spin Gaps of the C36 Fullerene and an Iron Porphyrin Model Complex"
+     source_id: lee_malone_morales_symmetry_v1.1 v1.0
+     status: published | authors: Lee, Joonho, Malone, Fionn D, Morales, Miguel A
+
+  -> exit 0
+
+################ $ mdf search iron --service bogus --limit 1
+No API URL configured for service 'bogus'. Use --api-url or set MDF_API_URL environment variable.
+  -> exit 1
+

@@ -21,8 +21,11 @@ _STATUS_STYLES = {
     "pending_curation": "[yellow]~ pending_curation[/yellow]",
     "pending":          "[yellow]~ pending[/yellow]",
     "approved":         "[blue]> approved[/blue]",
+    "publish_failed":   "[red]! publish_failed[/red]",
     "rejected":         "[red]x rejected[/red]",
     "failed":           "[red]! failed[/red]",
+    "withdrawn":        "[dim]- withdrawn[/dim]",
+    "deleted":          "[dim]- deleted[/dim]",
     "active":           "[cyan]> active[/cyan]",
     "closed":           "[dim]- closed[/dim]",
 }
@@ -31,6 +34,58 @@ _STATUS_STYLES = {
 def format_status_badge(status: str) -> str:
     """Return Rich-markup colored string for a submission status."""
     return _STATUS_STYLES.get(status, f"[dim]{status}[/dim]")
+
+
+def read_client(
+    api_url: Optional[str] = None,
+    token: Optional[str] = None,
+    service: str = "staging",
+    dev_user: Optional[str] = None,
+):
+    """Build a BackendClient for PUBLIC read endpoints.
+
+    Public GETs (search, card, citation, related, preview, health) are served
+    unauthenticated, so — unlike ``BackendClient.authenticated`` — this never
+    triggers an interactive browser login. It still uses explicit credentials
+    when they are available (so private/pending records remain reachable), but a
+    missing login does not block reading public data.
+
+    Also turns an unknown ``--service`` into a clean error instead of a raw
+    traceback.
+    """
+    import typer
+
+    from mdf_agent.core.backend_client import BackendClient, _api_url_for_service
+
+    try:
+        base = api_url or _api_url_for_service(service)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
+    has_creds = bool(
+        token
+        or os.environ.get("MDF_CONNECT_TOKEN")
+        or (os.environ.get("MDF_CLIENT_ID") and os.environ.get("MDF_CLIENT_SECRET"))
+        or dev_user
+        or os.environ.get("MDF_DEV_USER_ID")
+    )
+    # A cached interactive login also counts: route logged-in users through the
+    # authenticated client (uses the cached token, no new browser prompt) so they
+    # can read ACL-restricted datasets they own and reach auth-gated endpoints
+    # (e.g. /search/semantic). Anonymous users still get a public-only client and
+    # are never forced into a login prompt.
+    if not has_creds:
+        try:
+            from mdf_agent.auth.globus import is_logged_in
+            has_creds = is_logged_in(service_instance=service)
+        except Exception:
+            has_creds = False
+    if has_creds:
+        return BackendClient.authenticated(
+            base_url=base, token=token, service_instance=service, dev_user_id=dev_user
+        )
+    return BackendClient(base_url=base)
 
 
 @contextmanager

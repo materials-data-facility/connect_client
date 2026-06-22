@@ -558,7 +558,9 @@ class TestPreflightAndIdentifiers:
                     },
                 }
 
-        monkeypatch.setattr("mdf_agent.cli.main.BackendClient.authenticated", lambda **kwargs: FakeClient())
+        # `show` is a public read and now builds its client via read_client()
+        # (no forced interactive login). Patch that seam.
+        monkeypatch.setattr("mdf_agent.cli.main.read_client", lambda **kwargs: FakeClient())
         result = runner.invoke(app, ["show", "10.1234/example"])
         assert result.exit_code == 0
         assert seen["card_id"] == "src-resolved"

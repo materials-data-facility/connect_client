@@ -1,0 +1,55 @@
+################ $ mdf login --token garbage_token_xyz
+Authentication ready
+Token store: /tmp/mdf_test/home/.config/mdf_agent/tokens.json
+Using token from --token for this invocation.
+  -> exit 0
+
+################ $ mdf logout
+No cached token file found (/tmp/mdf_test/home/.config/mdf_agent/tokens.json)
+  -> exit 0
+
+################ $ mdf logout
+No cached token file found (/tmp/mdf_test/home/.config/mdf_agent/tokens.json)
+  -> exit 0
+
+################ $ mdf publish --preflight-only
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Preflight                                                                                        │
+│ Service: staging                                                                                 │
+│ Files: 5                                                                                         │
+│ Bytes: 246.0 B                                                                                   │
+│ Target: https://hjccjf3eqg.execute-api.us-east-1.amazonaws.com/staging                           │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━━━┓
+┃ Source ┃ Kind  ┃ Files ┃   Bytes ┃
+┡━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━━━┩
+│ .      │ local │     5 │ 246.0 B │
+└────────┴───────┴───────┴─────────┘
+
+- 1 hidden file(s) will be skipped under .
+x Authentication is not ready for service 'staging'.
+    Run `mdf login --service staging`, set MDF_CONNECT_TOKEN, or set MDF_CLIENT_ID + 
+MDF_CLIENT_SECRET for CI/automation.
+  -> exit 1
+
+################ $ mdf manifest discover --preview tabbed.tsv
+Preview only - extracted metadata:
+{                                                                                                   
+  "mdf": {                                                                                          
+    "table_schema": {                                                                               
+      "file": "tabbed.tsv",                                                                         
+      "columns": [                                                                                  
+        {                                                                                           
+          "name": "a\tb\tc"                                                                         
+        }                                                                                           
+      ],                                                                                            
+      "row_count": 2                                                                                
+    }                                                                                               
+  }                                                                                                 
+}                                                                                                   
+  -> exit 0
+
+=== skill tools (offline import) ===
+(eval):13: no such file or directory: .venv/bin/python
+  -> skill import exit 127

@@ -26,13 +26,7 @@ def backend_callback(
     dev_user: Optional[str] = typer.Option(None, "--dev-user", help="Dev-mode user id (X-User-Id)"),
 ):
     """Interact with MDF backend (v2) API."""
-    import sys as _sys
-
     _auth_opts.update(service=service, token=token, dev_user=dev_user)
-    print(
-        "Hint: try top-level commands like 'mdf cite', 'mdf preview', 'mdf doctor' instead of 'mdf backend ...'",
-        file=_sys.stderr,
-    )
 
 
 def _client(api_url: Optional[str]) -> BackendClient:
@@ -41,6 +35,21 @@ def _client(api_url: Optional[str]) -> BackendClient:
         token=_auth_opts.get("token"),
         service_instance=resolve_service(_auth_opts.get("service")),
         dev_user_id=_auth_opts.get("dev_user"),
+    )
+
+
+def _read_client(api_url: Optional[str]) -> BackendClient:
+    """Client for public read endpoints (health, search, card, cite, preview).
+
+    Never triggers an interactive browser login — these endpoints are public.
+    """
+    from mdf_agent.cli.formatting import read_client
+
+    return read_client(
+        api_url=api_url,
+        token=_auth_opts.get("token"),
+        service=resolve_service(_auth_opts.get("service")),
+        dev_user=_auth_opts.get("dev_user"),
     )
 
 
@@ -53,10 +62,21 @@ def health(
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
     json_output: bool = typer.Option(False, "--json", help="Raw JSON output"),
 ):
-    client = _client(api_url)
+    client = _read_client(api_url)
     result = client.health()
     client.close()
-    format_result_or_json(result, json_output, success_msg="Backend is healthy")
+    # The /health endpoint returns {"status": "ok", ...} with no "success" key.
+    healthy = bool(result.get("success") or result.get("status") == "ok")
+    if json_output:
+        _print(result)
+    elif healthy:
+        service = result.get("service")
+        suffix = f" [dim]({service})[/dim]" if service else ""
+        console.print(f"[green]Backend is healthy[/green]{suffix}")
+    else:
+        handle_api_result(result, error_prefix="Health check failed")
+    if not healthy:
+        raise typer.Exit(code=1)
 
 
 @app.command("submit")
@@ -342,7 +362,7 @@ def search(
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
 ):
     """Search datasets and streams."""
-    client = _client(api_url)
+    client = _read_client(api_url)
     result = client.search(query, search_type=search_type, limit=limit)
     client.close()
 
@@ -370,7 +390,7 @@ def card(
     api_url: Optional[str] = typer.Option(None, "--api-url", help="Override API base URL"),
 ):
     """Show a dataset preview card."""
-    client = _client(api_url)
+    client = _read_client(api_url)
     result = client.get_card(source_id, version=version)
     client.close()
 
@@ -437,7 +457,7 @@ def cite(
         mdf backend cite my_dataset -f bibtex         # BibTeX for papers
         mdf backend cite my_dataset -f ris -o ref.ris # Export to file
     """
-    client = _client(api_url)
+    client = _read_client(api_url)
     result = client.get_citation(source_id, format=format, version=version)
     client.close()
 
@@ -477,7 +497,7 @@ def preview(
     if files and sample:
         raise typer.BadParameter("--files and --sample cannot be combined")
 
-    client = _client(api_url)
+    client = _read_client(api_url)
     if file_path:
         result = client.dataset_file_detail(source_id, file_path)
     elif files:

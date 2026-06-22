@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 import typer
 import typer.rich_utils as typer_rich_utils
 from rich import box as rich_box
+from rich.markup import escape
 from rich.panel import Panel as RichPanel
 from rich.table import Table
 from rich.panel import Panel
@@ -34,6 +35,7 @@ from mdf_agent.cli.formatting import (
     console,
     format_status_badge,
     json_or_rich,
+    read_client,
     require_success,
 )
 from mdf_agent.cli.backend import app as backend_app
@@ -98,8 +100,20 @@ app.add_typer(stream_app, name="stream", hidden=True)
 # Main callback — first-run welcome or help
 # ---------------------------------------------------------------------------
 
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(f"mdf {__version__}")
+        raise typer.Exit()
+
+
 @app.callback(invoke_without_command=True)
-def main_callback(ctx: typer.Context):
+def main_callback(
+    ctx: typer.Context,
+    version: bool = typer.Option(
+        False, "--version", "-V", help="Show version and exit",
+        callback=_version_callback, is_eager=True,
+    ),
+):
     """MDF Agent — Materials Data Facility"""
     if ctx.invoked_subcommand is not None:
         return
@@ -234,7 +248,7 @@ def _render_status_details(result: Dict[str, Any], lookup_id: str) -> None:
                 mdata = {}
         if isinstance(mdata, dict):
             if mdata.get("title"):
-                console.print(f"  [dim]Title:[/dim] {mdata['title']}")
+                console.print(f"  [dim]Title:[/dim] {escape(str(mdata['title']))}")
         if sub.get("dataset_doi") or sub.get("doi"):
             doi = sub.get("dataset_doi") or sub.get("doi")
             console.print(f"  [dim]DOI:[/dim] https://doi.org/{doi}")
@@ -263,7 +277,7 @@ def _render_status_details(result: Dict[str, Any], lookup_id: str) -> None:
                 console.print("  [yellow]This is not the latest version[/yellow]")
 
         for label, value in _extract_feedback_fields(sub):
-            console.print(f"  [dim]{label}:[/dim] {value}")
+            console.print(f"  [dim]{label}:[/dim] {escape(str(value))}")
 
         if st == "pending_curation":
             console.print("  [dim]Next:[/dim] Waiting for curation review")
@@ -274,6 +288,9 @@ def _render_status_details(result: Dict[str, Any], lookup_id: str) -> None:
         elif st == "published":
             console.print("  [dim]Next:[/dim] Dataset is live!")
             console.print(f"  [dim]Try:[/dim] mdf show {sid} | mdf dataset cite {sid} | mdf dataset open {sid}")
+        elif st == "publish_failed":
+            console.print("  [yellow]Next:[/yellow] Approved, but the search ingest failed — not yet live. The pipeline retries; if it persists, contact a curator.")
+            console.print(f"  [dim]Try:[/dim] mdf status --watch {sid}")
         elif st == "rejected":
             console.print("  [dim]Next:[/dim] Review feedback, edit metadata if needed, then resubmit")
             console.print(f"  [dim]Try:[/dim] mdf dataset edit {sid} --title \"Updated title\" | mdf dataset resubmit {sid}")
@@ -299,7 +316,7 @@ def _watch_submission(
     announce: bool = True,
     stop_on_statuses: Optional[set[str]] = None,
 ) -> int:
-    terminal_states = {"published", "rejected", "failed", "deleted", "withdrawn"}
+    terminal_states = {"published", "publish_failed", "rejected", "failed", "deleted", "withdrawn"}
     start = time.monotonic()
 
     if announce and not json_output:
@@ -1176,10 +1193,13 @@ def clone(
                 service_instance=resolved,
                 dev_user_id=resolved_dev_user,
             )
-    except RuntimeError as exc:
+    except typer.Exit:
+        raise
+    except Exception as exc:
         if live_ctx is not None:
             live_ctx.stop()
-        console.print(f"\n[red]Error:[/red] {exc}")
+        console.print(f"\n[red]Clone failed:[/red] {exc}")
+        console.print("[dim]Try:[/dim] mdf clone <id> --transfer  (for cross-endpoint / Globus-only datasets)")
         raise typer.Exit(code=1)
     finally:
         if live_ctx is not None:
@@ -1239,21 +1259,24 @@ def search(
         mdf search "battery cathode materials" --semantic
     """
     resolved = resolve_service(service)
-    resolved_token = token or os.environ.get("MDF_CONNECT_TOKEN")
-    resolved_dev_user = dev_user or os.environ.get("MDF_DEV_USER_ID")
-    if resolved_token or resolved_dev_user:
-        client = BackendClient.authenticated(
-            base_url=api_url,
-            token=token,
-            service_instance=resolved,
-            dev_user_id=dev_user,
-        )
-    else:
-        client = BackendClient(base_url=api_url or _api_url_for_service(resolved))
+    client = read_client(api_url=api_url, token=token, service=resolved, dev_user=dev_user)
 
     with api_spinner("Searching (semantic)..." if semantic else "Searching..."):
         if semantic:
             result = client.search_semantic(query, limit=limit)
+            # Semantic search now requires auth (it spends the server's OpenAI key).
+            # An anonymous caller gets a 401 {"detail": ...} — surface a login hint.
+            detail = str(result.get("detail") or result.get("error") or "")
+            if not result.get("results") and any(
+                kw in detail.lower() for kw in ("auth", "token", "credential", "401", "unauthorized")
+            ):
+                if json_output:
+                    print(json.dumps(result, indent=2))
+                else:
+                    console.print("[yellow]Semantic search requires login.[/yellow]")
+                    console.print(f"[dim]Run:[/dim] mdf login --service {resolved}")
+                client.close()
+                return
             if not result.get("available", True):
                 reason = result.get("reason") or "Semantic search unavailable"
                 if json_output:
@@ -1301,7 +1324,7 @@ def search(
                 table.add_row(
                     str(i),
                     "[blue]dataset[/blue]",
-                    item.get("title", "Untitled"),
+                    escape(str(item.get("title", "Untitled"))),
                     f"{item.get('source_id')} v{item.get('version')}",
                     format_status_badge(item.get("status", "")),
                     item.get("doi", ""),
@@ -1310,7 +1333,7 @@ def search(
                 table.add_row(
                     str(i),
                     "[green]stream[/green]",
-                    item.get("title", "Untitled"),
+                    escape(str(item.get("title", "Untitled"))),
                     item.get("stream_id", ""),
                     f"{item.get('file_count', 0)} files",
                     "",
@@ -1406,7 +1429,7 @@ def list_datasets(
         updated = (sub.get("updated_at") or sub.get("created_at") or "")[:19]
         table.add_row(
             sub.get("source_id", ""),
-            title_str,
+            escape(str(title_str)),
             sub.get("version", ""),
             status_str,
             updated,
@@ -1441,12 +1464,7 @@ def related(
         raise typer.Exit(code=2)
 
     resolved = resolve_service(service)
-    client = BackendClient.authenticated(
-        base_url=api_url,
-        token=token,
-        service_instance=resolved,
-        dev_user_id=dev_user,
-    )
+    client = read_client(api_url=api_url, token=token, service=resolved, dev_user=dev_user)
     resolved_id = _resolve_identifier_with_notice(client, source_id)
 
     if by == "similar":
@@ -1546,12 +1564,7 @@ def show(
     from rich import box
 
     resolved = resolve_service(service)
-    client = BackendClient.authenticated(
-        base_url=api_url,
-        token=token,
-        service_instance=resolved,
-        dev_user_id=dev_user,
-    )
+    client = read_client(api_url=api_url, token=token, service=resolved, dev_user=dev_user)
     source_id = _resolve_identifier_with_notice(client, source_id)
     with api_spinner("Loading dataset..."):
         result = client.get_card(source_id, version=version)
@@ -1574,9 +1587,9 @@ def show(
 
     console.print()
     console.print(Panel(
-        f"[bold]{c.get('title', 'Untitled')}[/bold]\n"
-        f"[dim]{c.get('description', 'No description')}[/dim]",
-        title=f"[cyan]{c.get('source_id')}[/cyan] v{c.get('version', '1.0')}",
+        f"[bold]{escape(str(c.get('title', 'Untitled')))}[/bold]\n"
+        f"[dim]{escape(str(c.get('description', 'No description')))}[/dim]",
+        title=f"[cyan]{escape(str(c.get('source_id', '')))}[/cyan] v{c.get('version', '1.0')}",
         border_style="blue",
     ))
 
@@ -1585,15 +1598,15 @@ def show(
     table.add_column("Value")
 
     if c.get("authors"):
-        table.add_row("Authors", ", ".join(c["authors"]))
+        table.add_row("Authors", escape(", ".join(c["authors"])))
     if c.get("publisher"):
-        table.add_row("Publisher", c["publisher"])
+        table.add_row("Publisher", escape(str(c["publisher"])))
     if c.get("publication_year"):
         table.add_row("Year", str(c["publication_year"]))
     if c.get("organization"):
-        table.add_row("Organization", c["organization"])
+        table.add_row("Organization", escape(str(c["organization"])))
     if c.get("keywords"):
-        table.add_row("Keywords", ", ".join(c["keywords"]))
+        table.add_row("Keywords", escape(", ".join(c["keywords"])))
     if c.get("doi"):
         table.add_row("DOI", f"https://doi.org/{c['doi']}")
     if c.get("license"):

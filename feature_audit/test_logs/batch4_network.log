@@ -1,0 +1,350 @@
+################ $ mdf search iron oxide --json --brief
+[
+  {
+    "title": "Appendices to Silver nanoparticle wetting treatment in sol-gel derived zinc oxide thin films",
+    "authors": [
+      "Heintzkill, Reed T."
+    ],
+    "doi": "10.18126/M24S8F"
+  },
+  {
+    "title": "Reduced grain boundary mobilities in pure iron",
+    "authors": [
+      "Zhang, Jin",
+      "Ludwig, Wolfgang",
+      "Zhang, Yubin",
+      "S\u00f8rensen, Hans Henrik B.",
+      "Rowenhorst, David J.",
+      "Yamanaka, Akinori",
+      "Voorhees, Peter W.",
+      "Poulsen, Henning F."
+    ],
+    "doi": "10.18126/qh91-00tw"
+  },
+  {
+    "title": "Starting-point independent quantum Monte Carlo calculations of iron oxide",
+    "authors": [
+      "townsend, joshua p",
+      "flores, sergio d pineda",
+      "clay III, raymond c",
+      "mattsson, thomas r",
+      "neuscamman, eric",
+      "zhao, luning",
+      "cohen, ronald e",
+      "shulenburger, luke"
+    ],
+    "doi": "10.18126/nur5-90xb"
+  },
+  {
+    "title": "Dataset for \"Utilizing Essential Symmetry Breaking in Auxiliary-Field Quantum Monte Carlo: Application to the Spin Gaps of the C36 Fullerene and an Iron Porphyrin Model Complex\"",
+    "authors": [
+      "Lee, Joonho",
+      "Malone, Fionn D",
+      "Morales, Miguel A"
+    ],
+    "doi": "10.18126/6vto-9dd0"
+  },
+  {
+    "title": "Dateset for \"Auxiliary-field quantum Monte Carlo calculations of the structural properties of nickel oxide\"",
+    "authors": [
+      "Zhang, Shuai",
+      "Malone, Fionn D.",
+      "Morales, Miguel A."
+    ],
+    "doi": "10.18126/M2WS88"
+  },
+  {
+    "title": "Simulated Vibrational Density of States and X-ray Diffraction Profiles of Mechanically Deformed and Disordered Atomic Structures in Gold, Iron, Magnesium, and Silicon",
+    "authors": [
+      "Vizoso, Daniel",
+      "Dingreville, Remi"
+    ],
+    "doi": "10.18126/tacz-v14v"
+  },
+  {
+    "title": "Dataset for the paper \"Local structure of potassium doped nickel oxide: a combined experimental-theoretical study\"",
+    "authors": [
+      "Wrobel, Friederike",
+      "Shin, Hyeondeok",
+      "Sterbinsky, George E.",
+      "Hsiao, Haw-Wen",
+      "Zuo, Jian-Min",
+      "Ganesh, Panchapakesan",
+      "Krogel, Jaron T.",
+      "Benali, Anouar",
+      "Kent, Paul R.C.",
+      "Heinonen, Olle",
+      "Bhattacharya, Anand"
+    ],
+    "doi": "10.18126/sujk-r6co"
+  },
+  {
+    "title": "Dataset for \"Load-partitioning in an Oxide Dispersion-strengthened 310 Steel at Elevated Temperatures\"",
+    "authors": [
+      "Miao, Yinbin",
+      "Mo, Kun",
+      "Zhou, Zhangjian",
+      "Liu, Xiang",
+      "Lan, Kuan-Che",
+      "Zhang, Guangming",
+      "Park, Jun-Sang",
+      "Almer, Jonathan",
+      "Stubbins, James"
+    ],
+    "doi": "10.18126/M28G6T"
+  },
+  {
+    "title": "Critical Assessment of Electronic Structure Descriptors for Predicting Perovskite Catalytic Properties",
+    "authors": [
+      "Jacobs, Ryan",
+      "Liu, Jian",
+      "Abernathy, Harry",
+      "Morgan, Dane"
+    ],
+    "doi": "10.18126/aw1n-3z96"
+  },
+  {
+    "title": "Prognosis of Multivariate Battery State of Performance and Health via Transformers - Data",
+    "authors": [
+      "Paulson, Noah H.",
+      "Kubal, Joseph",
+      "Babinec, Susan J."
+    ],
+    "doi": "10.18126/ckt2-g8j2"
+  },
+  {
+    "title": "Machine learning bandgaps of double perovskites",
+    "authors": [
+      "Pilania, G.",
+      "Mannodi-Kanakkithodi, A.",
+      "Uberuaga, B. P.",
+      "Ramprasad, R.",
+      "Gubernatis, J. E.",
+      "Lookman, T."
+    ],
+    "doi": "10.18126/lss6-o5x4"
+  },
+  {
+    "title": "Identifying native point defect configurations in \u03b1-alumina",
+    "authors": [
+      "Kononov, Alina",
+      "Lee, Cheng-Wei",
+      "Shapera, Ethan",
+      "Schleife, Andre"
+    ],
+    "doi": "10.18126/bwgz-gel3"
+  },
+  {
+    "title": "Machine-Learning Assisted Screening Proton Conducting Co/Fe based Oxide for the Air Electrode of Protonic Solid Oxide Cell",
+    "authors": [
+      "Wang, Ning",
+      "Yuan, Baoyin",
+      "Zheng, Fangyuan",
+      "Mo, Shanyun",
+      "Zhang, Xiaohan",
+      "Du, Lei",
+      "Xing, Lixin",
+      "Meng, Ling",
+      "Zhao, Lei",
+      "Aoki, Yoshitaka",
+      "Tang, Chunmei",
+      "Ye, Siyu"
+    ],
+    "doi": "10.18126/zgzt-xr34"
+  },
+  {
+    "title": "EMsoft Electron Backscattered Diffraction (EBSD) Master Pattern Dataset for Iron (Fe)",
+    "authors": [
+      "De Graef, Marc"
+    ],
+    "doi": "10.18126/M2SG6G"
+  },
+  {
+    "title": "Hot-electron mediated ion diffusion in proton-irradiated magnesium oxide",
+    "authors": [
+      "Lee, Cheng-Wei",
+      "Schleife, Andr\u00e9"
+    ],
+    "doi": "10.18126/M2C35K"
+  },
+  {
+    "title": "Control of lithium salt partitioning, coordination, and solvation in vitrimer electrolytes",
+    "authors": [
+      "Jang, Seongon",
+      "Alvarez, Erick I. Hernandez",
+      "Chen, Chen",
+      "Jing, Brian B.",
+      "Shen, Chengtian",
+      "Braun, Paul V.",
+      "Schleife, Andr\u00e9",
+      "Schroeder, Charles M.",
+      "Evans, Christopher M."
+    ],
+    "doi": "10.18126/c9zx-r4gs"
+  },
+  {
+    "title": "Fundamental insights about interlayer cation migration in Li-ion electrodes at high states of charge",
+    "authors": [
+      "Vinckeviciute, Julija",
+      "Radin, Maxwell D.",
+      "Faenza, Nicholas V.",
+      "Amatucci, Glenn G.",
+      "Van der Ven, Anton"
+    ],
+    "doi": "10.18126/M2ZW7J"
+  },
+  {
+    "title": "Characterizing the Unifying Thread in High Temperature Superconductors Using Realistic Simulations",
+    "authors": [
+      "Narayan, Awadhesh",
+      "Busemeyer, Brian",
+      "Wagner, Lucas K."
+    ],
+    "doi": "10.18126/M2905X"
+  },
+  {
+    "title": "Mutual Photoluminescence Quenching and Photovoltaic Effect in Large-Area Single-Layer MoS2\u2013Polymer Heterojunctions",
+    "authors": [
+      "Shastry, Tejas A.",
+      "Balla, Itamar",
+      "Bergeron, Hadallia",
+      "Amsterdam, Samuel H.",
+      "Marks, Tobin J.",
+      "Hersam, Mark C."
+    ],
+    "doi": "10.18126/M27P7Z"
+  },
+  {
+    "title": "Dataset for Electronic properties of doped and defective NiO -- a Quantum Monte Carlo study",
+    "authors": [
+      "Shin, Hyeondeok",
+      "Luo, Ye",
+      "Ganesh, Panchapakesan",
+      "Balachandran, Janakiraman",
+      "Krogel, Jaron T.",
+      "Kent, Paul R. C.",
+      "Benali, Anouar",
+      "Heinonen, Olle"
+    ],
+    "doi": "10.18126/M2HW64"
+  }
+]
+  -> exit 0
+
+################ $ mdf search XRD --type streams --limit 3
+
+No results found for 'XRD'
+  -> exit 0
+
+################ $ mdf search battery cathode materials --semantic --limit 3
+
+Found 3 results for 'battery cathode materials'
+
+┏━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┓
+┃ #   ┃ Type     ┃ Title              ┃ ID                           ┃ Status ┃ DOI                ┃
+┡━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━┩
+│ 1   │ dataset  │ Blade-Coatable     │ thomas_bladecoat_hbn_v1.1 v… │        │ 10.18126/6fqv-23mo │
+│     │          │ Hexagonal Boron    │                              │        │                    │
+│     │          │ Nitride Ionogel    │                              │        │                    │
+│     │          │ Electrolytes for   │                              │        │                    │
+│     │          │ Scalable           │                              │        │                    │
+│     │          │ Production of      │                              │        │                    │
+│     │          │ Lithium Metal      │                              │        │                    │
+│     │          │ Batteries          │                              │        │                    │
+│ 2   │ dataset  │ High-Modulus       │ hersam_highmodulus_hexagona… │        │ 10.18126/8cig-o5fk │
+│     │          │ Hexagonal Boron    │                              │        │                    │
+│     │          │ Nitride            │                              │        │                    │
+│     │          │ Nanoplatelet Gel   │                              │        │                    │
+│     │          │ Electrolytes for   │                              │        │                    │
+│     │          │ Solid-State        │                              │        │                    │
+│     │          │ Rechargeable       │                              │        │                    │
+│     │          │ Lithium-Ion        │                              │        │                    │
+│     │          │ Batteries          │                              │        │                    │
+│ 3   │ dataset  │ High-Modulus       │ hyun_highmodulus_hexagonal_… │        │ 10.18126/eceb-gaa1 │
+│     │          │ Hexagonal Boron    │                              │        │                    │
+│     │          │ Nitride            │                              │        │                    │
+│     │          │ Nanoplatelet Gel   │                              │        │                    │
+│     │          │ Electrolytes for   │                              │        │                    │
+│     │          │ Solid-State        │                              │        │                    │
+│     │          │ Rechargeable       │                              │        │                    │
+│     │          │ Lithium-Ion        │                              │        │                    │
+│     │          │ Batteries          │                              │        │                    │
+└─────┴──────────┴────────────────────┴──────────────────────────────┴────────┴────────────────────┘
+
+Next: mdf show thomas_bladecoat_hbn_v1.1
+  -> exit 0
+
+################ $ mdf backend search iron --limit 2
+Hint: try top-level commands like 'mdf cite', 'mdf preview', 'mdf doctor' instead of 'mdf backend ...'
+Opening browser for Globus authentication...
+
+Please authenticate with Globus here:
+-------------------------------------
+https://auth.globus.org/v2/oauth2/authorize?client_id=074cebcc-19ad-4332-bbf2-78402291b659&redirect_uri=https%3A%2F%2Fauth.globus.org%2Fv2%2Fweb%2Fauth-code&scope=https%3A%2F%2Fauth.globus.org%2Fscopes%2F82f1b5c6-6e9b-11e5-ba47-22000b92c6ec%2Fhttps+urn%3Aglobus%3Aauth%3Ascope%3Atransfer.api.globus.org%3Aall+urn%3Aglobus%3Aauth%3Ascope%3Agroups.api.globus.org%3Aview_my_groups_and_memberships+https%3A%2F%2Fauth.globus.org%2Fscopes%2F4d5f8e8b-a61d-40d8-bb58-5a3f5d1d200a%2Fconnect+openid&state=_default&response_type=code&code_challenge=TnIu57myB8WGAMLawyMsqXyxm3-GVHahiyd6iM9sA8o&code_challenge_method=S256&access_type=offline&prefill_named_grant=MDF_Agent+on+blaisziks-MacBook-Air
+-------------------------------------
+
+Enter the resulting Authorization Code here: 
+Aborted.
+  -> exit 1
+
+################ $ mdf list
+Opening browser for Globus authentication...
+
+Please authenticate with Globus here:
+-------------------------------------
+https://auth.globus.org/v2/oauth2/authorize?client_id=074cebcc-19ad-4332-bbf2-78402291b659&redirect_uri=https%3A%2F%2Fauth.globus.org%2Fv2%2Fweb%2Fauth-code&scope=https%3A%2F%2Fauth.globus.org%2Fscopes%2F4d5f8e8b-a61d-40d8-bb58-5a3f5d1d200a%2Fconnect+urn%3Aglobus%3Aauth%3Ascope%3Agroups.api.globus.org%3Aview_my_groups_and_memberships+openid+https%3A%2F%2Fauth.globus.org%2Fscopes%2F82f1b5c6-6e9b-11e5-ba47-22000b92c6ec%2Fhttps+urn%3Aglobus%3Aauth%3Ascope%3Atransfer.api.globus.org%3Aall&state=_default&response_type=code&code_challenge=9HokWbaQjOBENjzfC-Z8B5eizByw54_onyAyaOoYifM&code_challenge_method=S256&access_type=offline&prefill_named_grant=MDF_Agent+on+blaisziks-MacBook-Air
+-------------------------------------
+
+Enter the resulting Authorization Code here: 
+Aborted.
+  -> exit 1
+
+################ $ mdf related mobility_5d_v1.1 --limit 3
+Opening browser for Globus authentication...
+
+Please authenticate with Globus here:
+-------------------------------------
+https://auth.globus.org/v2/oauth2/authorize?client_id=074cebcc-19ad-4332-bbf2-78402291b659&redirect_uri=https%3A%2F%2Fauth.globus.org%2Fv2%2Fweb%2Fauth-code&scope=https%3A%2F%2Fauth.globus.org%2Fscopes%2F4d5f8e8b-a61d-40d8-bb58-5a3f5d1d200a%2Fconnect+urn%3Aglobus%3Aauth%3Ascope%3Atransfer.api.globus.org%3Aall+https%3A%2F%2Fauth.globus.org%2Fscopes%2F82f1b5c6-6e9b-11e5-ba47-22000b92c6ec%2Fhttps+urn%3Aglobus%3Aauth%3Ascope%3Agroups.api.globus.org%3Aview_my_groups_and_memberships+openid&state=_default&response_type=code&code_challenge=EwzFS6RUiNd8B6Itc3NR9b7h8FpJeRoHF7bFYFnSscY&code_challenge_method=S256&access_type=offline&prefill_named_grant=MDF_Agent+on+blaisziks-MacBook-Air
+-------------------------------------
+
+Enter the resulting Authorization Code here: 
+Aborted.
+  -> exit 1
+
+################ $ mdf show mobility_5d_v1.1
+Opening browser for Globus authentication...
+
+Please authenticate with Globus here:
+-------------------------------------
+https://auth.globus.org/v2/oauth2/authorize?client_id=074cebcc-19ad-4332-bbf2-78402291b659&redirect_uri=https%3A%2F%2Fauth.globus.org%2Fv2%2Fweb%2Fauth-code&scope=openid+urn%3Aglobus%3Aauth%3Ascope%3Agroups.api.globus.org%3Aview_my_groups_and_memberships+https%3A%2F%2Fauth.globus.org%2Fscopes%2F4d5f8e8b-a61d-40d8-bb58-5a3f5d1d200a%2Fconnect+urn%3Aglobus%3Aauth%3Ascope%3Atransfer.api.globus.org%3Aall+https%3A%2F%2Fauth.globus.org%2Fscopes%2F82f1b5c6-6e9b-11e5-ba47-22000b92c6ec%2Fhttps&state=_default&response_type=code&code_challenge=53_fPn9j1sjKJasOTIv_K7DLeV4ryh3d-tWxDQq8MPE&code_challenge_method=S256&access_type=offline&prefill_named_grant=MDF_Agent+on+blaisziks-MacBook-Air
+-------------------------------------
+
+Enter the resulting Authorization Code here: 
+Aborted.
+  -> exit 1
+
+################ $ mdf dataset cite mobility_5d_v1.1 -f bibtex
+Opening browser for Globus authentication...
+
+Please authenticate with Globus here:
+-------------------------------------
+https://auth.globus.org/v2/oauth2/authorize?client_id=074cebcc-19ad-4332-bbf2-78402291b659&redirect_uri=https%3A%2F%2Fauth.globus.org%2Fv2%2Fweb%2Fauth-code&scope=https%3A%2F%2Fauth.globus.org%2Fscopes%2F82f1b5c6-6e9b-11e5-ba47-22000b92c6ec%2Fhttps+urn%3Aglobus%3Aauth%3Ascope%3Atransfer.api.globus.org%3Aall+https%3A%2F%2Fauth.globus.org%2Fscopes%2F4d5f8e8b-a61d-40d8-bb58-5a3f5d1d200a%2Fconnect+urn%3Aglobus%3Aauth%3Ascope%3Agroups.api.globus.org%3Aview_my_groups_and_memberships+openid&state=_default&response_type=code&code_challenge=Mjaygm3ntsMP-7SDlY5D5zoYV-UM6oe7IVxjTz0B-gw&code_challenge_method=S256&access_type=offline&prefill_named_grant=MDF_Agent+on+blaisziks-MacBook-Air
+-------------------------------------
+
+Enter the resulting Authorization Code here: 
+Aborted.
+  -> exit 1
+
+################ $ mdf backend card mobility_5d_v1.1
+Hint: try top-level commands like 'mdf cite', 'mdf preview', 'mdf doctor' instead of 'mdf backend ...'
+Opening browser for Globus authentication...
+
+Please authenticate with Globus here:
+-------------------------------------
+https://auth.globus.org/v2/oauth2/authorize?client_id=074cebcc-19ad-4332-bbf2-78402291b659&redirect_uri=https%3A%2F%2Fauth.globus.org%2Fv2%2Fweb%2Fauth-code&scope=https%3A%2F%2Fauth.globus.org%2Fscopes%2F4d5f8e8b-a61d-40d8-bb58-5a3f5d1d200a%2Fconnect+urn%3Aglobus%3Aauth%3Ascope%3Agroups.api.globus.org%3Aview_my_groups_and_memberships+urn%3Aglobus%3Aauth%3Ascope%3Atransfer.api.globus.org%3Aall+https%3A%2F%2Fauth.globus.org%2Fscopes%2F82f1b5c6-6e9b-11e5-ba47-22000b92c6ec%2Fhttps+openid&state=_default&response_type=code&code_challenge=HPip76Sn0N78nXX3dtO-Lew1STQl9p3IUWvvx2VQ3FY&code_challenge_method=S256&access_type=offline&prefill_named_grant=MDF_Agent+on+blaisziks-MacBook-Air
+-------------------------------------
+
+Enter the resulting Authorization Code here: 
+Aborted.
+  -> exit 1
+

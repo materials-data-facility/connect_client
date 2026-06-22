@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mdf_agent.core.backend_client import BackendClient
 
-STAGING_URL = "https://hjccjf3eqg.execute-api.us-east-1.amazonaws.com/staging"
+STAGING_URL = "https://3xicgt0g7l.execute-api.us-east-1.amazonaws.com/staging"
 DATACITE_TEST_API = "https://api.test.datacite.org"
 
 

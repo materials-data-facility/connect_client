@@ -338,7 +338,7 @@ The snapshot bucket has CORS open for browser reads. If you front it with CloudF
 | Environment | API URL | How to deploy |
 |-------------|---------|---------------|
 | dev | `./deploy.sh status dev` for URL | `cd cs/aws && sam build && ./deploy.sh dev` |
-| staging | `https://hjccjf3eqg.execute-api.us-east-1.amazonaws.com/staging` | `cd cs/aws && sam build && ./deploy.sh staging` |
+| staging | `https://3xicgt0g7l.execute-api.us-east-1.amazonaws.com/staging` | `cd cs/aws && sam build && ./deploy.sh staging` |
 | prod | `./deploy.sh status prod` for URL | `cd cs/aws && sam build && ./deploy.sh prod` |
 | local | `http://127.0.0.1:8080` | `cd cs/aws && ./deploy.sh local` |
 

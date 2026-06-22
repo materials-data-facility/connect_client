@@ -1,0 +1,49 @@
+################ $ mdf whoami
+Service: staging
+Status: not authenticated
+Token store: /tmp/mdf_test/home/.config/mdf_agent/tokens.json
+  -> exit 0
+
+################ $ mdf status --auth
+Service: staging
+Status: not authenticated
+Token store: /tmp/mdf_test/home/.config/mdf_agent/tokens.json
+  -> exit 0
+
+################ $ mdf validate
+No mdf.yaml found and no data paths provided
+Run mdf setup to create one, or pass data paths.
+  -> exit 1
+
+################ $ mdf init --help
+                                                                                                    
+ Usage: mdf init [OPTIONS] [PATH]                                                                   
+                                                                                                    
+ Create an mdf.yaml manifest for a dataset directory.                                               
+                                                                                                    
+   Arguments                                                                                        
+    path      [PATH]  Directory to create mdf.yaml in [default: .]                                  
+                                                                                                    
+   Options                                                                                          
+  --title        -t      TEXT     Dataset title                                                     
+  --author       -a      TEXT     Author name (repeatable)                                          
+  --description  -d      TEXT     Dataset description                                               
+  --publisher            TEXT     Dataset publisher                                                 
+  --year         -y      INTEGER  Publication year                                                  
+  --help                          Show this message and exit.                                       
+                                                                                                    
+
+  -> exit 0
+
+################ $ mdf doctor
+
+MDF Agent v0.2.0
+
+  -  Config         /tmp/mdf_test/home/.config/mdf_agent/config.json
+  -  Auth           Not authenticated
+  *  Service        staging (https://hjccjf3eqg.execute-api...)
+  *  Connectivity   Backend healthy (271ms)
+  -  Manifest       No mdf.yaml in current directory
+
+  -> exit 0
+
